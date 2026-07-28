@@ -9,6 +9,7 @@
  */
 import { detectarComodos } from "../src/lib/roomDetection";
 import { gerarPontosEletricos, gerarLegendaEletrica, quantidadeTomadasNBR, CAMADA_TOMADAS, CAMADA_ILUMINACAO } from "../src/lib/lancamentoEletrico";
+import { getBlockDef } from "../src/lib/blocks";
 import type { Geometria } from "../src/lib/types";
 
 let falhas = 0;
@@ -134,6 +135,124 @@ checar("legenda tem título", !!titulo);
 const blocosNaLegenda = legenda.filter((g) => g.tipo === "bloco").map((g) => (g as { nome: string }).nome);
 checar("legenda tem 1 ícone por bloco usado (sem duplicar)", blocosNaLegenda.length === nomesUsados.length, `${blocosNaLegenda.length} vs ${nomesUsados.length}`);
 checar("legenda não inclui tomada_chuveiro (nunca usada)", !blocosNaLegenda.includes("tomada_chuveiro"));
+
+// Iteração 36 (pedido do usuário): "o icone da legenda deve ficar do
+// mesmo tamanho do bloco real na planta" (sem escalaX/escalaY reduzindo)
+// e "a legenda precisa ter o retangulo contornando".
+const blocosComEscala = legenda.filter((g) => g.tipo === "bloco" && ((g as { escalaX?: number }).escalaX !== undefined || (g as { escalaY?: number }).escalaY !== undefined));
+checar("ícones da legenda SEM escalaX/escalaY (tamanho real, 1:1)", blocosComEscala.length === 0, JSON.stringify(blocosComEscala));
+const retangulosNaLegenda = legenda.filter((g) => g.tipo === "retangulo");
+checar("legenda tem exatamente 1 retângulo contornando", retangulosNaLegenda.length === 1, `${retangulosNaLegenda.length}`);
+if (retangulosNaLegenda.length === 1) {
+  const ret = retangulosNaLegenda[0] as { largura: number; altura: number };
+  checar("retângulo da legenda tem largura/altura positivas", ret.largura > 0 && ret.altura > 0, JSON.stringify(ret));
+  // O retângulo precisa ser desenhado ATRÁS do resto (primeiro no array),
+  // senão (sem hachura ele é só contorno, então nem tapa nada, mas a
+  // convenção de "fundo" ainda deve valer pra o dia que ganhar preenchimento).
+  checar("retângulo é o 1º item da legenda (desenha atrás do título/ícones/texto)", legenda[0]?.tipo === "retangulo");
+}
+
+// -----------------------------------------------------------------------
+// Teste 4 (Iteração 35b/36 -- bugfix "simbologias invisíveis"/"faceando a
+// parede" + confirmação do usuário de que o fator final é 8x o tamanho
+// ORIGINAL de cada bloco -- 20-24mm/14mm, herdados do diagrama unifilar):
+// confere que cada bloco tem EXATAMENTE 8x seu tamanho original (não um
+// valor arbitrário) e que toda tomada/interruptor lançado automaticamente
+// ganhou uma `rotacao` (número válido em [0,360)) -- só `ponto_luz_teto`
+// fica sem rotação (símbolo simétrico, lançado no centroide, sem parede
+// de referência).
+// -----------------------------------------------------------------------
+console.log("Teste 4: tamanho = 8x o original + rotação faceando a parede");
+const TAMANHO_ORIGINAL: Record<string, { largura: number; altura: number }> = {
+  tomada_baixa: { largura: 20, altura: 24 },
+  tomada_media: { largura: 20, altura: 24 },
+  tomada_alta: { largura: 20, altura: 24 },
+  tomada_chuveiro: { largura: 22, altura: 26 },
+  interruptor_simples: { largura: 14, altura: 14 },
+  ponto_luz_teto: { largura: 20, altura: 20 },
+};
+for (const nome of Object.keys(TAMANHO_ORIGINAL)) {
+  const def = getBlockDef(nome);
+  checar(`${nome}: definido na biblioteca`, !!def);
+  if (def) {
+    const original = TAMANHO_ORIGINAL[nome];
+    checar(`${nome}: largura = 8x original (${original.largura}mm -> ${original.largura * 8}mm)`, def.largura === original.largura * 8, `${def.largura}`);
+    checar(`${nome}: altura = 8x original (${original.altura}mm -> ${original.altura * 8}mm)`, def.altura === original.altura * 8, `${def.altura}`);
+  }
+}
+
+// Iteração 36: baixa/média/alta não devem mais ter texto dentro do
+// símbolo (usuário: "nao precisa de texto nos simbolos, somente na
+// legenda") -- a diferenciação agora é só pelo preenchimento (vazado/
+// meio/sólido).
+for (const nome of ["tomada_baixa", "tomada_media", "tomada_alta"]) {
+  const def = getBlockDef(nome);
+  checar(`${nome}: sem <text> dentro do símbolo`, !!def && !def.svgInner.includes("<text"), def?.svgInner);
+}
+checar("tomada_baixa: contorno vazado (só 1 polygon, fill=white)", (getBlockDef("tomada_baixa")?.svgInner.match(/<polygon/g) ?? []).length === 1);
+checar("tomada_media: meio preenchido (2 polygons -- contorno + metade sólida)", (getBlockDef("tomada_media")?.svgInner.match(/<polygon/g) ?? []).length === 2);
+checar(
+  "tomada_alta: totalmente sólida (fill igual ao stroke, não branco)",
+  (getBlockDef("tomada_alta")?.svgInner.match(/fill="white"/g) ?? []).length === 0
+);
+
+const tomadasEInterruptores = blocosGeometria.filter(
+  (g) => g.tipo === "bloco" && (g.nome.startsWith("tomada_") || g.nome === "interruptor_simples")
+);
+checar("há tomadas/interruptores para conferir rotação", tomadasEInterruptores.length > 0, `${tomadasEInterruptores.length}`);
+checar(
+  "toda tomada/interruptor automático tem rotacao numérica válida (0-360)",
+  tomadasEInterruptores.every((g) => typeof (g as { rotacao?: number }).rotacao === "number" && (g as { rotacao: number }).rotacao >= 0 && (g as { rotacao: number }).rotacao < 360),
+  JSON.stringify(tomadasEInterruptores.map((g) => (g as { nome: string; rotacao?: number }).rotacao))
+);
+
+const pontosLuz = blocosGeometria.filter((g) => g.tipo === "bloco" && g.nome === "ponto_luz_teto");
+checar("há pontos de luz para conferir", pontosLuz.length > 0, `${pontosLuz.length}`);
+checar(
+  "ponto_luz_teto não recebe rotacao (símbolo simétrico, sem parede de referência)",
+  pontosLuz.every((g) => (g as { rotacao?: number }).rotacao === undefined)
+);
+
+// -----------------------------------------------------------------------
+// Teste 5 (Iteração 35b -- achado ao testar visualmente o bugfix): num
+// cômodo QUADRADO (simétrico), o ponto médio da parede mais próxima do
+// centroide -- usado pra aproximar o interruptor -- pode coincidir com um
+// dos pontos igualmente espaçados das tomadas na mesma parede. Reproduz
+// exatamente o caso que apareceu no teste E2E (cozinha 3000x3000mm, 4
+// tomadas -- 1 por parede) e confere que o interruptor NÃO fica sobreposto
+// a nenhuma tomada (distância mínima = soma dos "raios" dos 2 símbolos).
+// -----------------------------------------------------------------------
+console.log("Teste 5: interruptor não sobrepõe tomada em cômodo simétrico (quadrado)");
+const geoQuadrado: Geometria[] = [
+  linha(0, 0, 3000, 0),
+  linha(3000, 0, 3000, 3000),
+  linha(3000, 3000, 0, 3000),
+  linha(0, 3000, 0, 0),
+  texto(1500, 1500, "Cozinha"),
+];
+const deteccaoQuadrado = detectarComodos(geoQuadrado);
+checar("cômodo quadrado detectado", deteccaoQuadrado.comodos.length === 1, JSON.stringify(deteccaoQuadrado.problemas));
+if (deteccaoQuadrado.comodos.length === 1) {
+  const { geometria: geoGerada, resumo: resumoQuadrado } = gerarPontosEletricos(deteccaoQuadrado.comodos);
+  checar("4 tomadas (ceil(12/3.5))", resumoQuadrado.totalTomadas === 4, `${resumoQuadrado.totalTomadas}`);
+  const blocosQuadrado = geoGerada.filter((g) => g.tipo === "bloco") as { nome: string; x: number; y: number }[];
+  const tomadasQuadrado = blocosQuadrado.filter((g) => g.nome.startsWith("tomada_"));
+  const interruptorQuadrado = blocosQuadrado.find((g) => g.nome === "interruptor_simples");
+  checar("interruptor encontrado", !!interruptorQuadrado);
+  if (interruptorQuadrado) {
+    const defTomada = getBlockDef("tomada_media");
+    const defInterruptor = getBlockDef("interruptor_simples");
+    const raioTomada = Math.max(defTomada?.altura ?? 0, defTomada?.largura ?? 0) / 2;
+    const raioInterruptor = Math.max(defInterruptor?.altura ?? 0, defInterruptor?.largura ?? 0) / 2;
+    const distanciaMinima = raioTomada + raioInterruptor + 40;
+    const distancias = tomadasQuadrado.map((t) => Math.hypot(t.x - interruptorQuadrado.x, t.y - interruptorQuadrado.y));
+    checar(
+      "interruptor fica a uma distância segura de TODAS as tomadas (sem sobreposição visual)",
+      distancias.every((d) => d >= distanciaMinima),
+      JSON.stringify({ distancias, distanciaMinima })
+    );
+  }
+}
 
 console.log("\n-----------------------------------------------------------------------");
 if (falhas > 0) {

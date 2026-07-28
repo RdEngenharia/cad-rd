@@ -177,53 +177,73 @@ export const BLOCK_LIBRARY: BlockDef[] = [
   // da biblioteca já funciona assim (ex.: disjuntor mono/bi/tripolar são 3
   // blocos, não 1 bloco parametrizado) -- mantém `pdfExport.ts`/`dxfExport.ts`
   // simples (1 `case` por variante, sem precisar ler um campo extra da
-  // geometria). Os números (30/130/200) e a sigla "CH" dentro do triângulo
-  // são só um rótulo visual de conferência rápida na tela/impressão -- a
-  // altura real de instalação (cm do piso) é informação de PROJETO/norma,
-  // não uma coordenada Z (o desenho é 2D, vista de planta baixa).
+  // geometria).
+  //
+  // Iteração 35b/36 (bugfix de tamanho + diferenciação visual, pedido do
+  // usuário): o resto da biblioteca acima é ESQUEMÁTICO (visto num
+  // diagrama unifilar, sempre zoomado -- o tamanho em mm não representa
+  // nada físico). Este bloco, ao contrário, é carimbado EM ESCALA REAL
+  // sobre uma planta baixa já desenhada em mm verdadeiros (1 unidade de
+  // desenho = 1mm) -- um cômodo típico tem 2500-6000mm de lado, então um
+  // símbolo de 20-24mm (o tamanho ORIGINAL desta família) é praticamente
+  // um ponto matemático, invisível em qualquer zoom/escala de impressão
+  // normal (1:50/1:75/1:100). Tamanho final = 8x o tamanho original
+  // (fator confirmado com o usuário, que já vinha aplicando essa mesma
+  // escala manualmente no app antes de eu corrigir aqui). A diferenciação
+  // entre baixa/média/alta deixou de ser um NÚMERO escrito dentro do
+  // triângulo (usuário: "nao precisa de texto nos simbolos, somente na
+  // legenda") e passou a ser o PREENCHIMENTO do símbolo, seguindo a
+  // convenção de simbologia elétrica que o usuário anexou como
+  // referência: baixa = contorno vazado (sem preenchimento), média = meio
+  // preenchido (metade do triângulo sólida), alta = totalmente
+  // preenchida (sólida). A altura de instalação (cm do piso) continua só
+  // na LEGENDA (`label`/`descricao` abaixo), nunca dentro do próprio
+  // símbolo na planta.
   {
     id: "tomada_baixa",
     label: "Tomada Baixa (30cm)",
-    descricao: "Ponto de tomada de força, instalação baixa (~30cm do piso) -- altura usual em ambientes secos (NBR 5410)",
-    largura: 20,
-    altura: 24,
+    descricao: "Ponto de tomada de força, instalação baixa (~30cm do piso) -- altura usual em ambientes secos (NBR 5410) -- símbolo VAZADO",
+    largura: 160,
+    altura: 192,
     svgInner: `
       <polygon points="50,8 14,82 86,82" fill="white" stroke="${STROKE}" stroke-width="4"/>
-      <text x="50" y="74" font-size="20" text-anchor="middle" fill="${STROKE}" font-family="sans-serif">30</text>
     `,
   },
   {
     id: "tomada_media",
     label: "Tomada Média (130cm)",
-    descricao: "Ponto de tomada de força, instalação média (~130cm do piso) -- uso típico sobre bancada (cozinha/área de serviço)",
-    largura: 20,
-    altura: 24,
+    descricao:
+      "Ponto de tomada de força, instalação média (~130cm do piso) -- uso típico sobre bancada (cozinha/área de serviço) -- símbolo MEIO PREENCHIDO",
+    largura: 160,
+    altura: 192,
     svgInner: `
       <polygon points="50,8 14,82 86,82" fill="white" stroke="${STROKE}" stroke-width="4"/>
-      <text x="50" y="74" font-size="18" text-anchor="middle" fill="${STROKE}" font-family="sans-serif">130</text>
+      <polygon points="50,8 50,82 86,82" fill="${STROKE}"/>
     `,
   },
   {
     id: "tomada_alta",
     label: "Tomada Alta (200cm)",
-    descricao: "Ponto de tomada de força, instalação alta (~200cm do piso) -- ex.: climatizador/equipamento sobre armário",
-    largura: 20,
-    altura: 24,
+    descricao: "Ponto de tomada de força, instalação alta (~200cm do piso) -- ex.: climatizador/equipamento sobre armário -- símbolo SÓLIDO",
+    largura: 160,
+    altura: 192,
     svgInner: `
-      <polygon points="50,8 14,82 86,82" fill="white" stroke="${STROKE}" stroke-width="4"/>
-      <text x="50" y="74" font-size="18" text-anchor="middle" fill="${STROKE}" font-family="sans-serif">200</text>
+      <polygon points="50,8 14,82 86,82" fill="${STROKE}" stroke="${STROKE}" stroke-width="4"/>
     `,
   },
   {
     // Iteração 35: NUNCA lançado automaticamente (ver `lancamentoEletrico.ts`)
     // -- fica na biblioteca só para o projetista posicionar manualmente onde
     // sabe que existe de fato um chuveiro/aquecedor (o nome do ambiente
-    // "banheiro" sozinho não garante presença nem posição do box).
+    // "banheiro" sozinho não garante presença nem posição do box). Fora do
+    // escopo do pedido de diferenciação por preenchimento (só baixa/
+    // média/alta) -- mantém o rótulo "CH" de conferência rápida, já que
+    // não faz parte do trio baixa/média/alta da referência do usuário.
     id: "tomada_chuveiro",
     label: "Tomada Chuveiro/Aquecedor",
     descricao: "Ponto de força dedicado (circuito exclusivo) para chuveiro/aquecedor de água -- posicionamento sempre manual",
-    largura: 22,
-    altura: 26,
+    largura: 176,
+    altura: 208,
     svgInner: `
       <polygon points="50,8 12,84 88,84" fill="white" stroke="${STROKE}" stroke-width="4.5"/>
       <text x="50" y="76" font-size="16" text-anchor="middle" fill="${STROKE}" font-family="sans-serif">CH</text>
@@ -233,8 +253,8 @@ export const BLOCK_LIBRARY: BlockDef[] = [
     id: "interruptor_simples",
     label: "Interruptor Simples",
     descricao: "Interruptor de 1 seção (liga/desliga 1 circuito de iluminação) -- símbolo de planta baixa",
-    largura: 14,
-    altura: 14,
+    largura: 112,
+    altura: 112,
     svgInner: `
       <circle cx="50" cy="50" r="30" fill="white" stroke="${STROKE}" stroke-width="4"/>
       <text x="50" y="60" font-size="30" text-anchor="middle" fill="${STROKE}" font-family="sans-serif">S</text>
@@ -244,8 +264,8 @@ export const BLOCK_LIBRARY: BlockDef[] = [
     id: "ponto_luz_teto",
     label: "Ponto de Luz (Teto)",
     descricao: "Ponto de iluminação no teto (símbolo de planta baixa)",
-    largura: 20,
-    altura: 20,
+    largura: 160,
+    altura: 160,
     svgInner: `
       <circle cx="50" cy="50" r="36" fill="white" stroke="${STROKE}" stroke-width="4"/>
       <line x1="26" y1="26" x2="74" y2="74" stroke="${STROKE}" stroke-width="4"/>

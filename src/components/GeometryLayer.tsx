@@ -17,7 +17,7 @@ import { BlocoShape } from "./BlocoShape";
 import { getBlockDef } from "@/lib/blocks";
 import { ArcoShape } from "./ArcoShape";
 import { ViewportShape } from "./ViewportShape";
-import type { Viewport } from "@/lib/snap";
+import { screenToWorld, type Viewport } from "@/lib/snap";
 import type { Camada, Geometria, RetanguloGeometria } from "@/lib/types";
 import { PADRAO_TRACEJADO_MM } from "@/lib/types";
 import { formatarComUnidade, deMm, ROTULO_UNIDADE } from "@/lib/unidades";
@@ -181,10 +181,22 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
       alternarHachura(id);
     } else if (ferramenta === "deslocar" && !offsetAlvoId) {
       // O 2º clique (lado/direção) não deve ser interceptado aqui -- só
-      // o 1º clique, que escolhe a linha alvo. Ver CanvasStage para o
-      // clique de destino, que trata qualquer ponto do canvas.
+      // o 1º clique, que escolhe a linha/aresta alvo. Ver CanvasStage
+      // para o clique de destino, que trata qualquer ponto do canvas.
+      //
+      // Iteração 36: `selecionarAlvoOffset` agora também aceita clicar
+      // numa aresta de retângulo/polígono/polilinha fechado (antes só
+      // "linha" solta funcionava) -- pra isso ela precisa saber ONDE
+      // dentro da forma foi o clique (pra escolher qual das 4 arestas de
+      // um retângulo, por exemplo), não só o `id`. O Konva só dá a
+      // posição do ponteiro em pixels de tela (`getPointerPosition`);
+      // convertemos pro mesmo sistema de coordenadas de mundo (mm) que o
+      // resto do app usa via `screenToWorld` (mesma função que
+      // `CanvasStage.tsx` usa pro clique de nível Stage).
       e.cancelBubble = true;
-      selecionarAlvoOffset(id);
+      const pointer = e.target.getStage()?.getPointerPosition();
+      const pontoMundo = pointer ? screenToWorld(pointer, viewport) : { x: 0, y: 0 };
+      selecionarAlvoOffset(id, pontoMundo);
     } else if (ferramenta === "concordancia") {
       e.cancelBubble = true;
       if (!filletAlvo1Id) {

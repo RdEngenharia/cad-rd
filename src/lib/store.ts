@@ -72,6 +72,7 @@ import {
   somar,
   subtrair,
   escalar,
+  distanciaAoSegmento,
 } from "./geom";
 import { resolverCamada } from "./layers";
 import { bboxCombinada, caixaContida, caixaEnvolvente, caixasSeCruzam, type CaixaEnvolvente } from "./selection";
@@ -187,6 +188,20 @@ interface CadState {
    */
   offsetDistancia: number | null;
   offsetAlvoId: string | null;
+  /**
+   * Segmento (2 pontos) que será de fato deslocado -- resolvido no
+   * momento do 1º clique (`selecionarAlvoOffset`), independente do TIPO
+   * do objeto clicado: pra uma "linha" solta é o próprio x1/y1/x2/y2; pra
+   * um "retangulo"/"poligono"/"polilinha" fechado é a ARESTA mais
+   * próxima do clique (usuário: "o botao ofsset ou deslocar precisar
+   * conseguir duplicar qualquer linha dos 4 cantos de um retangulo ou
+   * quadrado fechado, atualmente ele só funciona em linhas soltas"). Ter
+   * essa cópia resolvida aqui (em vez de `aplicarOffset` reler `g.tipo`)
+   * é o que permite `aplicarOffset` continuar simples: sempre gera uma
+   * NOVA "linha" paralela a este segmento, sem precisar saber de onde
+   * ele veio.
+   */
+  offsetAlvoSegmento: { x1: number; y1: number; x2: number; y2: number } | null;
 
   /**
    * FILLET (Concordância): raio "lembrado" entre usos (como o AutoCAD
@@ -403,7 +418,8 @@ interface CadState {
 
   // OFFSET (Deslocar) ------------------------------------------------------
   setOffsetDistancia: (n: number) => void;
-  selecionarAlvoOffset: (id: string) => void;
+  /** `ponto` (clique original, coordenadas de mundo) decide QUAL aresta usar quando `id` é um retângulo/polígono/polilinha fechado (ver `offsetAlvoSegmento`). */
+  selecionarAlvoOffset: (id: string, ponto: Ponto) => void;
   aplicarOffset: (ponto: Ponto) => { ok: boolean; erro?: string };
 
   // FILLET (Concordância) ---------------------------------------------------
@@ -909,6 +925,63 @@ function promoverRetanguloParaPoligono(g: RetanguloGeometria): PoligonoGeometria
 }
 
 /**
+ * Dado uma lista de vértices (`fechado: true` fecha o último vértice de
+ * volta ao primeiro -- caso de retângulo/polígono; `false` não -- caso de
+ * polilinha), devolve o segmento (par de pontos consecutivos) mais
+ * próximo de `alvo`. Usado por `segmentoOffsetAlvo` abaixo pra achar
+ * QUAL aresta de uma forma fechada foi clicada.
+ */
+function segmentoMaisProximo(
+  pontos: Ponto[],
+  alvo: Ponto,
+  fechado: boolean
+): { x1: number; y1: number; x2: number; y2: number } | null {
+  const n = pontos.length;
+  if (n < 2) return null;
+  const totalArestas = fechado ? n : n - 1;
+  let melhor: { x1: number; y1: number; x2: number; y2: number } | null = null;
+  let melhorDist = Infinity;
+  for (let i = 0; i < totalArestas; i++) {
+    const a = pontos[i];
+    const b = pontos[(i + 1) % n];
+    const { dist } = distanciaAoSegmento(alvo, a, b);
+    if (dist < melhorDist) {
+      melhorDist = dist;
+      melhor = { x1: a.x, y1: a.y, x2: b.x, y2: b.y };
+    }
+  }
+  return melhor;
+}
+
+/**
+ * Resolve o segmento (2 pontos) que o OFFSET (Deslocar) deve de fato
+ * duplicar, a partir do objeto clicado (`g`) e de ONDE foi clicado
+ * (`ponto`, coordenadas de mundo) -- ver `CadState.offsetAlvoSegmento`.
+ * Pedido do usuário: "o botao ofsset ou deslocar precisar conseguir
+ * duplicar qualquer linha dos 4 cantos de um retangulo ou quadrado
+ * fechado, atualmente ele só funciona em linhas soltas" -- antes desta
+ * função, `selecionarAlvoOffset` só aceitava `g.tipo === "linha"` e
+ * ignorava silenciosamente qualquer clique num retângulo/polígono/
+ * polilinha. Devolve `null` pra qualquer tipo sem aresta (bloco, texto,
+ * círculo, etc.) -- mesmo comportamento de "clique ignorado" de antes.
+ */
+function segmentoOffsetAlvo(g: Geometria, ponto: Ponto): { x1: number; y1: number; x2: number; y2: number } | null {
+  if (g.tipo === "linha") return { x1: g.x1, y1: g.y1, x2: g.x2, y2: g.y2 };
+  if (g.tipo === "retangulo") {
+    const cantos: Ponto[] = [
+      { x: g.x, y: g.y },
+      { x: g.x + g.largura, y: g.y },
+      { x: g.x + g.largura, y: g.y + g.altura },
+      { x: g.x, y: g.y + g.altura },
+    ];
+    return segmentoMaisProximo(cantos, ponto, true);
+  }
+  if (g.tipo === "poligono") return segmentoMaisProximo(g.pontos, ponto, true);
+  if (g.tipo === "polilinha") return segmentoMaisProximo(g.pontos, ponto, false);
+  return null;
+}
+
+/**
  * Gira uma geometria em volta de `centro` por `anguloGraus` (delta) --
  * usada por `girarSelecao` (rotação de grupo, Sprint 3). Retângulos são
  * promovidos a polígono primeiro (ver `promoverRetanguloParaPoligono`),
@@ -1110,6 +1183,7 @@ export const useCadStore = create<CadState>((set, get) => {
   trimPreview: null,
   offsetDistancia: null,
   offsetAlvoId: null,
+  offsetAlvoSegmento: null,
   filletRaio: 0,
   filletAlvo1Id: null,
   filletAguardandoRaio: false,
@@ -1122,7 +1196,17 @@ export const useCadStore = create<CadState>((set, get) => {
 
   selecaoBox: null,
   toolbarPosicao: "TOP",
-  textoFontSizeAtivo: 10,
+  // Iteração 36 (usuário: "corrija o texto sempre deve ter um tamanho
+  // proporcional inicial ao desenho, desenhei um retangulo 3mx3m e ao
+  // selecionar o botao texto aparece bem pequeno tive que aumentar para
+  // 129mm") -- 10mm era um tamanho ajustado pros diagramas ESQUEMÁTICOS
+  // do resto do app (unifilar/FV, sempre vistos bem zoomados), mas esta
+  // app também desenha plantas baixas em ESCALA REAL (1 unidade = 1mm,
+  // cômodos de milhares de mm) -- nesse contexto, 10mm é praticamente
+  // invisível, o mesmo problema de fundo dos blocos de tomada/interruptor
+  // já corrigido em `blocks.ts`. Valor padrão elevado pro tamanho que o
+  // usuário confirmou funcionar bem numa planta real.
+  textoFontSizeAtivo: 129,
   cotaP1: null,
   cotaP2: null,
 
@@ -1145,6 +1229,7 @@ export const useCadStore = create<CadState>((set, get) => {
       trimPreview: null,
       offsetDistancia: null,
       offsetAlvoId: null,
+      offsetAlvoSegmento: null,
       filletAlvo1Id: null,
       filletAguardandoRaio: false,
       selecaoBox: null,
@@ -1273,6 +1358,7 @@ export const useCadStore = create<CadState>((set, get) => {
       trimPreview: null,
       offsetDistancia: null,
       offsetAlvoId: null,
+      offsetAlvoSegmento: null,
       filletAlvo1Id: null,
       filletAguardandoRaio: false,
       calibrationMode: false,
@@ -1739,54 +1825,63 @@ export const useCadStore = create<CadState>((set, get) => {
 
   setOffsetDistancia: (n) => set({ offsetDistancia: Number.isFinite(n) && n > 0 ? n : null }),
 
-  // Só arma o alvo se a distância já foi informada e o clique foi numa
-  // linha de fato -- nas outras situações, não faz nada (o clique é
-  // simplesmente ignorado, sem quebrar o fluxo).
-  selecionarAlvoOffset: (id) =>
+  // Só arma o alvo se a distância já foi informada e o clique caiu perto
+  // de alguma ARESTA de fato (`segmentoOffsetAlvo` cobre linha solta e
+  // as arestas de retângulo/polígono/polilinha -- ver comentário lá) --
+  // nas outras situações (bloco, texto, círculo...), não faz nada, o
+  // clique é simplesmente ignorado, sem quebrar o fluxo.
+  selecionarAlvoOffset: (id, ponto) =>
     set((state) => {
       if (state.offsetDistancia === null) return state;
       const g = state.projeto.geometria.find((x) => x.id === id);
-      if (!g || g.tipo !== "linha") return state;
-      return { offsetAlvoId: id };
+      if (!g) return state;
+      const segmento = segmentoOffsetAlvo(g, ponto);
+      if (!segmento) return state;
+      return { offsetAlvoId: id, offsetAlvoSegmento: segmento };
     }),
 
-  // Calcula o vetor perpendicular unitário à linha alvo e desloca uma
-  // NOVA linha paralela por `offsetDistancia`, no sentido do lado onde
-  // `ponto` foi clicado (projeção do vetor "ponto - ponto médio" sobre
-  // a normal decide o sinal). A linha original permanece intacta --
-  // igual ao OFFSET do AutoCAD, que sempre cria um objeto novo.
+  // Calcula o vetor perpendicular unitário ao segmento alvo já resolvido
+  // (`offsetAlvoSegmento` -- pode ser uma linha inteira ou só a aresta de
+  // um retângulo/polígono/polilinha, ver `segmentoOffsetAlvo`) e desloca
+  // uma NOVA linha paralela por `offsetDistancia`, no sentido do lado
+  // onde `ponto` foi clicado (projeção do vetor "ponto - ponto médio"
+  // sobre a normal decide o sinal). O objeto original permanece intacto
+  // -- igual ao OFFSET do AutoCAD, que sempre cria um objeto novo (mesmo
+  // quando o alvo era só uma aresta de uma forma fechada: isso NUNCA edita
+  // o retângulo/polígono original, só desenha uma linha solta nova ao lado).
   aplicarOffset: (ponto) => {
-    const { offsetAlvoId, offsetDistancia, projeto } = get();
-    if (!offsetAlvoId || offsetDistancia === null) {
-      return { ok: false, erro: "Informe a distância e selecione a linha alvo primeiro." };
+    const { offsetAlvoId, offsetAlvoSegmento, offsetDistancia, projeto } = get();
+    if (!offsetAlvoId || !offsetAlvoSegmento || offsetDistancia === null) {
+      return { ok: false, erro: "Informe a distância e selecione a linha/aresta alvo primeiro." };
     }
-    const linha = projeto.geometria.find((g) => g.id === offsetAlvoId);
-    if (!linha || linha.tipo !== "linha") return { ok: false, erro: "A linha alvo não existe mais." };
+    const original = projeto.geometria.find((g) => g.id === offsetAlvoId);
+    if (!original) return { ok: false, erro: "O objeto alvo não existe mais." };
 
-    const dx = linha.x2 - linha.x1;
-    const dy = linha.y2 - linha.y1;
+    const seg = offsetAlvoSegmento;
+    const dx = seg.x2 - seg.x1;
+    const dy = seg.y2 - seg.y1;
     const len = Math.hypot(dx, dy);
-    if (len < 1e-9) return { ok: false, erro: "A linha alvo tem comprimento zero." };
+    if (len < 1e-9) return { ok: false, erro: "O segmento alvo tem comprimento zero." };
 
     const nx = -dy / len;
     const ny = dx / len;
-    const midx = (linha.x1 + linha.x2) / 2;
-    const midy = (linha.y1 + linha.y2) / 2;
+    const midx = (seg.x1 + seg.x2) / 2;
+    const midy = (seg.y1 + seg.y2) / 2;
     const proj = (ponto.x - midx) * nx + (ponto.y - midy) * ny;
     const sinal = proj >= 0 ? 1 : -1;
     const off = sinal * offsetDistancia;
 
     get().addGeometria({
       tipo: "linha",
-      camada: linha.camada,
-      x1: linha.x1 + nx * off,
-      y1: linha.y1 + ny * off,
-      x2: linha.x2 + nx * off,
-      y2: linha.y2 + ny * off,
+      camada: original.camada,
+      x1: seg.x1 + nx * off,
+      y1: seg.y1 + ny * off,
+      x2: seg.x2 + nx * off,
+      y2: seg.y2 + ny * off,
     });
-    // Mantém a distância armada (permite deslocar outra linha em
+    // Mantém a distância armada (permite deslocar outra linha/aresta em
     // seguida, igual ao AutoCAD) -- só limpa o alvo já usado.
-    set({ offsetAlvoId: null });
+    set({ offsetAlvoId: null, offsetAlvoSegmento: null });
     return { ok: true };
   },
 
@@ -1943,7 +2038,7 @@ export const useCadStore = create<CadState>((set, get) => {
 
   setToolbarPosicao: (p) => set({ toolbarPosicao: p }),
 
-  setTextoFontSizeAtivo: (n) => set({ textoFontSizeAtivo: Number.isFinite(n) && n > 0 ? n : 10 }),
+  setTextoFontSizeAtivo: (n) => set({ textoFontSizeAtivo: Number.isFinite(n) && n > 0 ? n : 129 }),
 
   atualizarTexto: (id, patch) =>
     set((state) => ({
