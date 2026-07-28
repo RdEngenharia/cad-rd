@@ -655,8 +655,45 @@ export function detectarComodos(
   return { comodos, problemas, resolucaoMm };
 }
 
-/** Devolve pontos espaçados uniformemente ao longo do perímetro de `poligono`, deslocados `insetMm` para DENTRO (perpendicular ao trecho local, sempre no sentido do centro do polígono). Usado por `lib/lancamentoEletrico.ts` para posicionar tomadas. */
-export function distribuirPontosNoContorno(poligono: Ponto[], quantidade: number, insetMm: number, centro: Ponto): Ponto[] {
+/**
+ * Ângulo de rotação (graus, sentido HORÁRIO, mesma convenção usada em todo
+ * o projeto para `BlocoGeometria.rotacao` -- ver `blocks.ts#pontosConexaoMundo`,
+ * `pdfExport.ts#desenharBloco`, `dxfExport.ts#desenharBlocoDxf` e
+ * `BlocoShape.tsx`, todos aplicando a MESMA transformação:
+ * `worldX = lx*cosA - ly*senA`, `worldY = lx*senA + ly*cosA`, onde `lx,ly`
+ * são coordenadas locais do bloco (viewBox 0-100, já centradas em 0,0)).
+ *
+ * Bug relatado pelo usuário: "quero as simbologias faceando com a parede
+ * da planta baixa" -- os blocos de tomada/interruptor são desenhados na
+ * biblioteca (`blocks.ts`) com a face/ápice que deve encarar o cômodo
+ * apontando para o local `(0,-1)` (ex.: o ápice do triângulo da tomada, em
+ * `(50,8)` relativo ao centro do viewBox `(50,50)`). Esta função devolve o
+ * ângulo que gira essa direção local `(0,-1)` até coincidir com a normal
+ * `(nx,ny)` (unitária, apontando da parede PRA DENTRO do cômodo -- já
+ * calculada por quem chama), deixando o símbolo "de frente" pra dentro do
+ * ambiente e, portanto, com a base encostada/faceando a parede mais
+ * próxima.
+ *
+ * Dedução: substituindo `lx=0, ly=-1` na transformação acima, `worldX =
+ * senA` e `worldY = -cosA` -- igualando a `(nx,ny)`: `senA = nx`, `cosA =
+ * -ny` => `A = atan2(nx, -ny)`. Conferido à mão para o caso
+ * `(nx,ny)=(0,1)` (parede em cima, cômodo embaixo): `A = atan2(0,-1) =
+ * 180°`, que de fato reorienta o local `(0,-1)` para o mundo `(0,1)`
+ * (ápice apontando pra baixo, pra dentro do cômodo) -- correto.
+ */
+export function anguloFaceandoParede(nx: number, ny: number): number {
+  let graus = (Math.atan2(nx, -ny) * 180) / Math.PI;
+  if (graus < 0) graus += 360;
+  return graus;
+}
+
+/** Devolve pontos espaçados uniformemente ao longo do perímetro de `poligono`, deslocados `insetMm` para DENTRO (perpendicular ao trecho local, sempre no sentido do centro do polígono), cada um já com o `anguloGraus` (ver `anguloFaceandoParede`) que orienta o símbolo de frente pra dentro do cômodo/faceando a parede mais próxima. Usado por `lib/lancamentoEletrico.ts` para posicionar tomadas. */
+export function distribuirPontosNoContorno(
+  poligono: Ponto[],
+  quantidade: number,
+  insetMm: number,
+  centro: Ponto
+): { x: number; y: number; anguloGraus: number }[] {
   const n = poligono.length;
   if (n < 3 || quantidade <= 0) return [];
 
@@ -672,7 +709,7 @@ export function distribuirPontosNoContorno(poligono: Ponto[], quantidade: number
   if (total <= 0) return [];
 
   const espacamento = total / quantidade;
-  const pontos: Ponto[] = [];
+  const pontos: { x: number; y: number; anguloGraus: number }[] = [];
   for (let k = 0; k < quantidade; k++) {
     let alvo = espacamento * (k + 0.5);
     let i = 0;
@@ -701,7 +738,7 @@ export function distribuirPontosNoContorno(poligono: Ponto[], quantidade: number
     const nx = mesmoSentido ? nx1 : -nx1;
     const ny = mesmoSentido ? ny1 : -ny1;
 
-    pontos.push({ x: ponto.x + nx * insetMm, y: ponto.y + ny * insetMm });
+    pontos.push({ x: ponto.x + nx * insetMm, y: ponto.y + ny * insetMm, anguloGraus: anguloFaceandoParede(nx, ny) });
   }
   return pontos;
 }

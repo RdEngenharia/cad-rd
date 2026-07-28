@@ -223,6 +223,68 @@ function texto(x: number, y: number, conteudo: string): Geometria {
   }
 }
 
+// -----------------------------------------------------------------------
+// Teste 8 (Iteração 35b -- bugfix "quero as simbologias faceando com a
+// parede da planta baixa"): cada ponto devolvido por
+// `distribuirPontosNoContorno` agora vem com `anguloGraus`, que deve
+// orientar o símbolo de frente pra dentro do cômodo, faceando a PAREDE
+// MAIS PRÓXIMA daquele ponto especificamente (não necessariamente a
+// parede de onde o ponto "nasceu" na distribuição por perímetro -- o que
+// importa pro usuário é o resultado visual: o símbolo perto de uma parede
+// deve ficar de frente pra ela). O ângulo esperado é calculado aqui de
+// forma INDEPENDENTE (duplicando só a fórmula documentada publicamente em
+// `anguloFaceandoParede`, não chamando a função internamente) a partir da
+// parede mais próxima de cada ponto -- robusto contra qualquer mudança na
+// ordem/sentido de traçado do contorno.
+// -----------------------------------------------------------------------
+{
+  console.log("Teste 8: anguloGraus -- símbolo orientado de frente pra parede mais próxima");
+  const geo: Geometria[] = [
+    linha(0, 0, 4000, 0),
+    linha(4000, 0, 4000, 3000),
+    linha(4000, 3000, 0, 3000),
+    linha(0, 3000, 0, 0),
+    texto(2000, 1500, "Sala"),
+  ];
+  const r = detectarComodos(geo);
+  const c = r.comodos[0];
+  checar("pré-condição: contorno disponível", !!c?.contorno);
+  if (c?.contorno) {
+    const pontos = distribuirPontosNoContorno(c.contorno, 4, 60, c.centroide);
+    checar("todos os pontos têm anguloGraus numérico", pontos.every((p) => typeof p.anguloGraus === "number"));
+    for (const p of pontos) {
+      const distTopo = p.y;
+      const distBaixo = 3000 - p.y;
+      const distEsquerda = p.x;
+      const distDireita = 4000 - p.x;
+      const menor = Math.min(distTopo, distBaixo, distEsquerda, distDireita);
+      let nx = 0;
+      let ny = 0;
+      if (menor === distTopo) {
+        nx = 0;
+        ny = 1;
+      } else if (menor === distBaixo) {
+        nx = 0;
+        ny = -1;
+      } else if (menor === distEsquerda) {
+        nx = 1;
+        ny = 0;
+      } else {
+        nx = -1;
+        ny = 0;
+      }
+      let esperado = (Math.atan2(nx, -ny) * 180) / Math.PI;
+      if (esperado < 0) esperado += 360;
+      const diff = Math.min(Math.abs(p.anguloGraus - esperado), 360 - Math.abs(p.anguloGraus - esperado));
+      checar(
+        `ponto (${p.x.toFixed(0)},${p.y.toFixed(0)}) com anguloGraus=${p.anguloGraus.toFixed(1)}° faceando a parede mais próxima (esperado ${esperado}°)`,
+        diff < 1,
+        JSON.stringify({ ponto: p, esperado })
+      );
+    }
+  }
+}
+
 console.log("\n-----------------------------------------------------------------------");
 if (falhas > 0) {
   console.log(`${falhas} verificação(ões) FALHARAM.`);
