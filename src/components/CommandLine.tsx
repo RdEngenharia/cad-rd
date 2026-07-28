@@ -123,6 +123,7 @@ export function CommandLine() {
   const setFerramenta = useCadStore((s) => s.setFerramenta);
   const cancelarDesenho = useCadStore((s) => s.cancelarDesenho);
   const ferramenta = useCadStore((s) => s.ferramenta);
+  const ferramentaAtivacaoSeq = useCadStore((s) => s.ferramentaAtivacaoSeq);
   const unidadeDesenho = useCadStore((s) => s.unidadeDesenho);
   const selecionadoIds = useCadStore((s) => s.selecionadoIds);
   const apagarSelecionados = useCadStore((s) => s.apagarSelecionados);
@@ -191,6 +192,14 @@ export function CommandLine() {
   // sempre que a ferramenta entra num desses estados de "aguardando
   // sub-prompt digitado".
   useEffect(() => {
+    // Iteração 37 -- `ferramentaAtivacaoSeq` só precisa MUDAR de valor
+    // pra forçar este efeito a rodar nem que o resto do estado (ex.:
+    // `ferramenta`/`offsetDistancia`) já estivesse exatamente do jeito
+    // que reclicar o botão deixaria de novo (ver comentário completo mais
+    // abaixo, no array de dependências). O `void` só deixa explícito pro
+    // leitor (e pro linter de exhaustive-deps) que essa leitura é
+    // proposital, não um resíduo esquecido.
+    void ferramentaAtivacaoSeq;
     if (aguardandoConteudoTexto) {
       textareaRef.current?.focus();
       return;
@@ -208,7 +217,17 @@ export function CommandLine() {
       (ferramenta === "deslocar" && offsetDistancia === null) ||
       (ferramenta === "concordancia" && filletAguardandoRaio);
     if (aguardandoSubPrompt) inputRef.current?.focus();
-  }, [aguardandoConteudoTexto, aguardandoValorDeMedida, ferramenta, offsetDistancia, filletAguardandoRaio]);
+    // Iteração 37 -- `ferramentaAtivacaoSeq` entra só na lista de
+    // dependências (nunca é lido no corpo do efeito) pra FORÇAR este
+    // efeito a rodar de novo TODA VEZ que o usuário clica num botão de
+    // ferramenta, mesmo reclicando a MESMA ferramenta já ativa (ex.:
+    // clicar "Deslocar" de novo com `offsetDistancia` já `null` de
+    // antes -- nesse caso nem `ferramenta` nem `offsetDistancia` mudam
+    // de valor, então sem esse contador o efeito não refiria e o campo
+    // não reganhava o foco). Bug relatado pelo usuário: "estou tendo
+    // dificuldade as vezes porque quando clico no botao deslocar o campo
+    // de digitar o comando da distancia nao ativa sozinho".
+  }, [aguardandoConteudoTexto, aguardandoValorDeMedida, ferramenta, offsetDistancia, filletAguardandoRaio, ferramentaAtivacaoSeq]);
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();

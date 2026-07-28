@@ -57,6 +57,11 @@ const COR_SELECAO = "#2563eb";
 const COR_OSNAP = "#22c55e";
 const COR_GHOST = "#0ea5e9";
 const COR_CALIBRACAO = "#eab308";
+// OFFSET (Deslocar), Iteração 37 -- destaque em âmbar da linha/aresta
+// "em mira" ANTES do 1º clique (hover), pra diferenciar visualmente do
+// azul de seleção normal, do vermelho do TRIM (que remove) e do ciano do
+// ghost/ preview (que já mostra a duplicata em si).
+const COR_OFFSET_HOVER = "#f59e0b";
 
 /** Translada uma cópia "fantasma" de uma geometria por (dx, dy) -- só para preview, nunca persistido. */
 function transladarPreview(g: Geometria, dx: number, dy: number): Geometria {
@@ -134,6 +139,8 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
   const trimPreview = useCadStore((s) => s.trimPreview);
   const unidadeDesenho = useCadStore((s) => s.unidadeDesenho);
   const offsetAlvoId = useCadStore((s) => s.offsetAlvoId);
+  const offsetAlvoSegmento = useCadStore((s) => s.offsetAlvoSegmento);
+  const offsetHover = useCadStore((s) => s.offsetHover);
   const offsetDistancia = useCadStore((s) => s.offsetDistancia);
   const filletAlvo1Id = useCadStore((s) => s.filletAlvo1Id);
   const selecionarAlvoOffset = useCadStore((s) => s.selecionarAlvoOffset);
@@ -737,28 +744,57 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
           />
         ))}
 
-      {/* OFFSET (Deslocar): preview ao vivo da linha paralela, no lado
-          onde o cursor está agora (mesmo cálculo de `aplicarOffset`). */}
+      {/* OFFSET (Deslocar) -- FASE 1, ANTES do 1º clique: destaca em
+          âmbar a linha/aresta que SERIA escolhida se o usuário clicasse
+          agora (`offsetHover`, recalculado a cada mousemove em
+          `CanvasStage.tsx`). Pedido do usuário: "o botao deslocar
+          precisa mostrar que está ativo quando encostar por cima da
+          linha, faça ele selecionar a linha que vai ser duplicada para
+          o usuario ver que esta funcionando". */}
+      {ferramenta === "deslocar" && !offsetAlvoId && offsetHover && (
+        <Line
+          points={[offsetHover.segmento.x1, offsetHover.segmento.y1, offsetHover.segmento.x2, offsetHover.segmento.y2]}
+          stroke={COR_OFFSET_HOVER}
+          strokeWidth={3.5 / scale}
+          lineCap="round"
+          listening={false}
+        />
+      )}
+
+      {/* OFFSET (Deslocar) -- FASE 2, DEPOIS do 1º clique: preview ao
+          vivo da linha paralela, no lado onde o cursor está AGORA (mesmo
+          cálculo de `aplicarOffset`) -- pedido do usuário: "quando eu
+          arrastar para a direita ou esquerda a linha duplicada venha
+          antes de eu clicar no local assim vou ver que está correto o
+          lado". Usa `offsetAlvoSegmento` (já resolvido no 1º clique, ver
+          `lib/offset.ts#segmentoOffsetAlvo`) em vez de reler a geometria
+          original -- funciona pra QUALQUER tipo de alvo (linha solta OU
+          aresta de retângulo/polígono/polilinha fechado), diferente da
+          versão anterior desta preview, que só reconhecia `tipo ===
+          "linha"` e ficava muda (nenhum preview) pra aresta de forma
+          fechada -- exatamente o caso que a Iteração 36 passou a
+          suportar no clique em si, mas cujo preview ainda não tinha sido
+          atualizado. */}
       {ferramenta === "deslocar" &&
         offsetAlvoId &&
+        offsetAlvoSegmento &&
         offsetDistancia !== null &&
         ponteiroMundo &&
         (() => {
-          const linha = geometria.find((g) => g.id === offsetAlvoId);
-          if (!linha || linha.tipo !== "linha") return null;
-          const dx = linha.x2 - linha.x1;
-          const dy = linha.y2 - linha.y1;
+          const seg = offsetAlvoSegmento;
+          const dx = seg.x2 - seg.x1;
+          const dy = seg.y2 - seg.y1;
           const len = Math.hypot(dx, dy) || 1;
           const nx = -dy / len;
           const ny = dx / len;
-          const midx = (linha.x1 + linha.x2) / 2;
-          const midy = (linha.y1 + linha.y2) / 2;
+          const midx = (seg.x1 + seg.x2) / 2;
+          const midy = (seg.y1 + seg.y2) / 2;
           const proj = (ponteiroMundo.x - midx) * nx + (ponteiroMundo.y - midy) * ny;
           const sinal = proj >= 0 ? 1 : -1;
           const off = sinal * offsetDistancia;
           return (
             <Line
-              points={[linha.x1 + nx * off, linha.y1 + ny * off, linha.x2 + nx * off, linha.y2 + ny * off]}
+              points={[seg.x1 + nx * off, seg.y1 + ny * off, seg.x2 + nx * off, seg.y2 + ny * off]}
               stroke={COR_GHOST}
               strokeWidth={1.2 / scale}
               dash={[5 / scale, 4 / scale]}

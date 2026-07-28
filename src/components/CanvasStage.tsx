@@ -8,6 +8,7 @@ import { useCadStore } from "@/lib/store";
 import { screenToWorld, distance, type Viewport } from "@/lib/snap";
 import { resolverPontoAlvo } from "@/lib/osnap";
 import { linhaSobCursor, segmentosDeCorte, segmentoNoParametro } from "@/lib/trim";
+import { geometriaSobCursorOffset } from "@/lib/offset";
 import { BLOCO_DRAG_MIME } from "@/lib/blocks";
 import { type LinhaGeometria, type ViewportGeometria, dimensoesFolhaOrientada } from "@/lib/types";
 import { GridLayer } from "./GridLayer";
@@ -106,6 +107,7 @@ export function CanvasStage() {
   const aplicarTrim = useCadStore((s) => s.aplicarTrim);
   const offsetAlvoId = useCadStore((s) => s.offsetAlvoId);
   const aplicarOffset = useCadStore((s) => s.aplicarOffset);
+  const setOffsetHover = useCadStore((s) => s.setOffsetHover);
   const pushComando = useCadStore((s) => s.pushComando);
   const setSelecaoBox = useCadStore((s) => s.setSelecaoBox);
   const confirmarSelecaoBox = useCadStore((s) => s.confirmarSelecaoBox);
@@ -628,6 +630,23 @@ export function CanvasStage() {
         return;
       }
 
+      // OFFSET (Deslocar), Iteração 37 -- ANTES do 1º clique (`offsetAlvoId`
+      // ainda não armado): destaca ao vivo qual linha/aresta SERIA
+      // escolhida se o usuário clicasse agora, mesma ideia do TRIM acima.
+      // Pedido do usuário: "o botao deslocar precisa mostrar que está
+      // ativo quando encostar por cima da linha, faça ele selecionar a
+      // linha que vai ser duplicada para o usuario ver que esta
+      // funcionando". Depois do 1º clique este bloco para de rodar (a
+      // condição `!offsetAlvoId` passa a ser falsa) e o ponteiro cai no
+      // fluxo normal logo abaixo -- é o `ponteiroMundo` dali que alimenta
+      // o preview ao vivo da linha paralela em `GeometryLayer.tsx`.
+      if (ferramenta === "deslocar" && !offsetAlvoId) {
+        setPonteiroMundo(mundo);
+        setOsnapAlvo(null);
+        setOffsetHover(geometriaSobCursorOffset(projeto.geometria, projeto.camadas, mundo, viewportAtual));
+        return;
+      }
+
       const resultado = resolverPontoAlvo(pointer, mundo, projeto.geometria, projeto.camadas, viewportAtual, gridSize, snapAtivo);
       setPonteiroMundo(resultado.ponto);
       setOsnapAlvo(resultado.tipo ? resultado.ponto : null, resultado.tipo);
@@ -642,6 +661,8 @@ export function CanvasStage() {
       setPonteiroMundo,
       setOsnapAlvo,
       setTrimPreview,
+      offsetAlvoId,
+      setOffsetHover,
       setSelecaoBox,
       viewportAtivoId,
       atualizarViewport,

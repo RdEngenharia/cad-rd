@@ -72,9 +72,9 @@ import {
   somar,
   subtrair,
   escalar,
-  distanciaAoSegmento,
 } from "./geom";
 import { resolverCamada } from "./layers";
+import { segmentoOffsetAlvo, type SegmentoOffset } from "./offset";
 import { bboxCombinada, caixaContida, caixaEnvolvente, caixasSeCruzam, type CaixaEnvolvente } from "./selection";
 import { aplicarStretchNaGeometria, aplicarStretchArestaNaGeometria } from "./grips";
 import { getBlockDef } from "./blocks";
@@ -96,6 +96,20 @@ interface Ponto {
 interface CadState {
   projeto: Projeto;
   ferramenta: Ferramenta;
+  /**
+   * Iteração 37 -- contador que incrementa TODA VEZ que `setFerramenta`
+   * roda, mesmo quando a ferramenta escolhida já é a mesma de antes
+   * (ex.: clicar de novo no botão "Deslocar" já ativo). Existe só pra dar
+   * um "sinal de ativação" que o `useEffect` de auto-foco da linha de
+   * comando (`CommandLine.tsx`) consiga captar via array de dependências
+   * -- sem ele, reclicar a MESMA ferramenta sem nenhum outro campo do
+   * store mudar de valor (ex.: `offsetDistancia` já `null`) não dispara
+   * o efeito de novo, e o campo de digitar não reganha o foco. Bug real
+   * relatado pelo usuário: "estou tendo dificuldade as vezes porque
+   * quando clico no botao deslocar o campo de digitar o comando da
+   * distancia nao ativa sozinho".
+   */
+  ferramentaAtivacaoSeq: number;
   activeLayer: string;
   blocoParaCarimbar: string | null;
   viewport: Viewport;
@@ -201,7 +215,21 @@ interface CadState {
    * NOVA "linha" paralela a este segmento, sem precisar saber de onde
    * ele veio.
    */
-  offsetAlvoSegmento: { x1: number; y1: number; x2: number; y2: number } | null;
+  offsetAlvoSegmento: SegmentoOffset | null;
+
+  /**
+   * Iteração 37 -- destaque ao vivo da linha/aresta que SERIA escolhida
+   * se o usuário clicasse agora, recalculado a cada mousemove enquanto
+   * `offsetAlvoId` ainda não foi definido (ver `CanvasStage.tsx` +
+   * `lib/offset.ts#geometriaSobCursorOffset`). Pedido do usuário: "o
+   * botao deslocar precisa mostrar que está ativo quando encostar por
+   * cima da linha, faça ele selecionar a linha que vai ser duplicada
+   * para o usuario ver que esta funcionando". Some (`null`) assim que o
+   * 1º clique arma `offsetAlvoId` -- a partir daí quem mostra feedback
+   * visual é o preview da linha paralela (`offsetAlvoSegmento` + ghost
+   * em `GeometryLayer.tsx`), não mais este destaque de "candidato".
+   */
+  offsetHover: { id: string; segmento: SegmentoOffset } | null;
 
   /**
    * FILLET (Concordância): raio "lembrado" entre usos (como o AutoCAD
@@ -418,6 +446,8 @@ interface CadState {
 
   // OFFSET (Deslocar) ------------------------------------------------------
   setOffsetDistancia: (n: number) => void;
+  /** Recalculado a cada mousemove ANTES do 1º clique -- ver `offsetHover`. */
+  setOffsetHover: (h: CadState["offsetHover"]) => void;
   /** `ponto` (clique original, coordenadas de mundo) decide QUAL aresta usar quando `id` é um retângulo/polígono/polilinha fechado (ver `offsetAlvoSegmento`). */
   selecionarAlvoOffset: (id: string, ponto: Ponto) => void;
   aplicarOffset: (ponto: Ponto) => { ok: boolean; erro?: string };
@@ -925,61 +955,13 @@ function promoverRetanguloParaPoligono(g: RetanguloGeometria): PoligonoGeometria
 }
 
 /**
- * Dado uma lista de vértices (`fechado: true` fecha o último vértice de
- * volta ao primeiro -- caso de retângulo/polígono; `false` não -- caso de
- * polilinha), devolve o segmento (par de pontos consecutivos) mais
- * próximo de `alvo`. Usado por `segmentoOffsetAlvo` abaixo pra achar
- * QUAL aresta de uma forma fechada foi clicada.
+ * `segmentoOffsetAlvo` (usada logo abaixo por `selecionarAlvoOffset`) e o
+ * hover ao vivo da linha alvo (`geometriaSobCursorOffset`, usada por
+ * `CanvasStage.tsx`) agora moraram pra `lib/offset.ts` (Iteração 37) --
+ * módulo puro compartilhado entre o store e os componentes de canvas,
+ * espelhando o papel de `lib/trim.ts` pro TRIM. Ver lá pro histórico/
+ * comentário completo de por que existem.
  */
-function segmentoMaisProximo(
-  pontos: Ponto[],
-  alvo: Ponto,
-  fechado: boolean
-): { x1: number; y1: number; x2: number; y2: number } | null {
-  const n = pontos.length;
-  if (n < 2) return null;
-  const totalArestas = fechado ? n : n - 1;
-  let melhor: { x1: number; y1: number; x2: number; y2: number } | null = null;
-  let melhorDist = Infinity;
-  for (let i = 0; i < totalArestas; i++) {
-    const a = pontos[i];
-    const b = pontos[(i + 1) % n];
-    const { dist } = distanciaAoSegmento(alvo, a, b);
-    if (dist < melhorDist) {
-      melhorDist = dist;
-      melhor = { x1: a.x, y1: a.y, x2: b.x, y2: b.y };
-    }
-  }
-  return melhor;
-}
-
-/**
- * Resolve o segmento (2 pontos) que o OFFSET (Deslocar) deve de fato
- * duplicar, a partir do objeto clicado (`g`) e de ONDE foi clicado
- * (`ponto`, coordenadas de mundo) -- ver `CadState.offsetAlvoSegmento`.
- * Pedido do usuário: "o botao ofsset ou deslocar precisar conseguir
- * duplicar qualquer linha dos 4 cantos de um retangulo ou quadrado
- * fechado, atualmente ele só funciona em linhas soltas" -- antes desta
- * função, `selecionarAlvoOffset` só aceitava `g.tipo === "linha"` e
- * ignorava silenciosamente qualquer clique num retângulo/polígono/
- * polilinha. Devolve `null` pra qualquer tipo sem aresta (bloco, texto,
- * círculo, etc.) -- mesmo comportamento de "clique ignorado" de antes.
- */
-function segmentoOffsetAlvo(g: Geometria, ponto: Ponto): { x1: number; y1: number; x2: number; y2: number } | null {
-  if (g.tipo === "linha") return { x1: g.x1, y1: g.y1, x2: g.x2, y2: g.y2 };
-  if (g.tipo === "retangulo") {
-    const cantos: Ponto[] = [
-      { x: g.x, y: g.y },
-      { x: g.x + g.largura, y: g.y },
-      { x: g.x + g.largura, y: g.y + g.altura },
-      { x: g.x, y: g.y + g.altura },
-    ];
-    return segmentoMaisProximo(cantos, ponto, true);
-  }
-  if (g.tipo === "poligono") return segmentoMaisProximo(g.pontos, ponto, true);
-  if (g.tipo === "polilinha") return segmentoMaisProximo(g.pontos, ponto, false);
-  return null;
-}
 
 /**
  * Gira uma geometria em volta de `centro` por `anguloGraus` (delta) --
@@ -1158,6 +1140,7 @@ export const useCadStore = create<CadState>((set, get) => {
   return {
   projeto: projetoVazio(),
   ferramenta: "selecionar",
+  ferramentaAtivacaoSeq: 0,
   activeLayer: "BARRAMENTO",
   blocoParaCarimbar: null,
   viewport: { scale: 1, x: 0, y: 0 },
@@ -1184,6 +1167,7 @@ export const useCadStore = create<CadState>((set, get) => {
   offsetDistancia: null,
   offsetAlvoId: null,
   offsetAlvoSegmento: null,
+  offsetHover: null,
   filletRaio: 0,
   filletAlvo1Id: null,
   filletAguardandoRaio: false,
@@ -1221,8 +1205,14 @@ export const useCadStore = create<CadState>((set, get) => {
   areaTransferencia: [],
 
   setFerramenta: (f) =>
-    set({
+    set((state) => ({
       ferramenta: f,
+      // Iteração 37 -- incrementa SEMPRE, mesmo reclicando a ferramenta
+      // já ativa (ver `CadState.ferramentaAtivacaoSeq`): é o "sinal de
+      // ativação" que garante que `CommandLine.tsx` reganhe o foco no
+      // campo de digitar mesmo quando nenhum outro campo do store muda
+      // de valor entre um clique e o próximo no mesmo botão.
+      ferramentaAtivacaoSeq: state.ferramentaAtivacaoSeq + 1,
       pontoRascunho: null,
       poligonoPontos: null,
       polilinhaPontos: null,
@@ -1230,6 +1220,7 @@ export const useCadStore = create<CadState>((set, get) => {
       offsetDistancia: null,
       offsetAlvoId: null,
       offsetAlvoSegmento: null,
+      offsetHover: null,
       filletAlvo1Id: null,
       filletAguardandoRaio: false,
       selecaoBox: null,
@@ -1240,7 +1231,7 @@ export const useCadStore = create<CadState>((set, get) => {
       ...(f === "calibrar"
         ? {}
         : { calibrationMode: false, calibXrefId: null, calibPoint1: null, calibPoint2: null }),
-    }),
+    })),
 
   armarCarimbo: (blocoId) =>
     set({ ferramenta: "carimbar", blocoParaCarimbar: blocoId, pontoRascunho: null }),
@@ -1359,6 +1350,7 @@ export const useCadStore = create<CadState>((set, get) => {
       offsetDistancia: null,
       offsetAlvoId: null,
       offsetAlvoSegmento: null,
+      offsetHover: null,
       filletAlvo1Id: null,
       filletAguardandoRaio: false,
       calibrationMode: false,
@@ -1825,6 +1817,12 @@ export const useCadStore = create<CadState>((set, get) => {
 
   setOffsetDistancia: (n) => set({ offsetDistancia: Number.isFinite(n) && n > 0 ? n : null }),
 
+  // Iteração 37: recalculado a cada mousemove em CanvasStage.tsx ANTES do
+  // 1º clique (ver `lib/offset.ts#geometriaSobCursorOffset`) -- só
+  // controla o destaque visual de "qual linha seria escolhida agora",
+  // sem efeito nenhum na lógica de aplicar o offset em si.
+  setOffsetHover: (h) => set({ offsetHover: h }),
+
   // Só arma o alvo se a distância já foi informada e o clique caiu perto
   // de alguma ARESTA de fato (`segmentoOffsetAlvo` cobre linha solta e
   // as arestas de retângulo/polígono/polilinha -- ver comentário lá) --
@@ -1837,7 +1835,10 @@ export const useCadStore = create<CadState>((set, get) => {
       if (!g) return state;
       const segmento = segmentoOffsetAlvo(g, ponto);
       if (!segmento) return state;
-      return { offsetAlvoId: id, offsetAlvoSegmento: segmento };
+      // O destaque de "candidato" (hover) some assim que o alvo é
+      // definitivamente escolhido -- a partir daqui quem dá feedback
+      // visual é o preview da linha paralela (ver `GeometryLayer.tsx`).
+      return { offsetAlvoId: id, offsetAlvoSegmento: segmento, offsetHover: null };
     }),
 
   // Calcula o vetor perpendicular unitário ao segmento alvo já resolvido
