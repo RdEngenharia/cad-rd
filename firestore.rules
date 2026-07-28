@@ -1,0 +1,50 @@
+rules_version = '2';
+
+// -----------------------------------------------------------------------
+// Regras de segurança do Firestore -- coleção "projetos" (cad-unifilar).
+// -----------------------------------------------------------------------
+// Modelo adotado (compatível com o comportamento JÁ existente no app,
+// que permite salvar/carregar SEM login -- ver `lib/firebase.ts`):
+//
+//   - LEITURA: pública (qualquer um com o ID do documento consegue
+//     carregar o projeto -- é assim que o botão "Carregar" por ID
+//     funciona hoje, inclusive pra compartilhar um projeto por link/ID
+//     com outra pessoa sem exigir conta). Não há listagem pública: só dá
+//     pra ler um documento sabendo o ID exato (o ID é um UUID, não é
+//     adivinhável), então continua funcionando como "link não listado".
+//
+//   - ESCRITA (create/update/delete):
+//       - Projeto SEM "owner_uid" (salvo sem login, fluxo antigo/atual
+//         quando o usuário não está autenticado): permanece aberto, do
+//         jeito que já funciona hoje sem regras nenhuma.
+//       - Projeto COM "owner_uid" (salvo por um usuário logado): só o
+//         próprio dono (mesmo uid do Firebase Auth) pode alterar/excluir.
+//         Ninguém consegue "roubar" um projeto de outro usuário mudando
+//         o campo owner_uid pra o próprio uid, porque a regra de update
+//         também exige que o owner_uid ATUAL (antes da escrita) já seja
+//         o do usuário autenticado.
+//
+// Quer mais restritivo (ex.: exigir login pra tudo, ou tornar a leitura
+// também só do dono)? Troque `allow read: if true;` por
+// `allow read: if resource.data.owner_uid == request.auth.uid;` -- mas
+// isso quebra o "Carregar por ID" pra quem não é dono/não está logado.
+// -----------------------------------------------------------------------
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /projetos/{projetoId} {
+      allow read: if true;
+
+      allow create: if !("owner_uid" in request.resource.data) ||
+                       request.resource.data.owner_uid == request.auth.uid;
+
+      allow update, delete: if !("owner_uid" in resource.data) ||
+                                resource.data.owner_uid == request.auth.uid;
+    }
+
+    // Qualquer outra coleção fica bloqueada por padrão (nenhuma outra
+    // coleção é usada pelo app hoje).
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
