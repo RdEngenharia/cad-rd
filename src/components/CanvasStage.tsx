@@ -147,6 +147,10 @@ export function CanvasStage() {
   const enquadramentoPendente = useCadStore((s) => s.enquadramentoPendente);
   const limparEnquadramentoPendente = useCadStore((s) => s.limparEnquadramentoPendente);
   const gridSize = useCadStore((s) => s.gridSize);
+  // Iteração 44 -- tema do fundo do Desenho (Model Space, "claro"/"escuro"
+  // -- ver `lib/temaCanvas.ts`). Só se aplica FORA de uma Prancha (o papel
+  // da Prancha continua sempre branco, ver `pranchaAtiva` abaixo).
+  const temaCanvas = useCadStore((s) => s.temaCanvas);
   const snapAtivo = useCadStore((s) => s.snapAtivo);
   const orthoAtivo = useCadStore((s) => s.orthoAtivo);
   const toggleOrtho = useCadStore((s) => s.toggleOrtho);
@@ -1507,7 +1511,9 @@ export function CanvasStage() {
   return (
     <div
       ref={containerRef}
-      className="relative h-full w-full overflow-hidden bg-slate-100"
+      className={`relative h-full w-full overflow-hidden ${
+        !pranchaAtiva && temaCanvas === "escuro" ? "bg-slate-900" : "bg-slate-100"
+      }`}
       style={{ cursor }}
       onContextMenu={(e) => e.preventDefault()}
       onDragOver={handleDragOver}
@@ -1549,6 +1555,7 @@ export function CanvasStage() {
                 stageWidth={size.width}
                 stageHeight={size.height}
                 gridSize={gridSize}
+                tema={temaCanvas}
               />
               <XrefLayer />
               <GeometryLayer viewport={viewportAtual} />

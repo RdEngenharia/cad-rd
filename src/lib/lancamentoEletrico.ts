@@ -37,11 +37,11 @@
  */
 
 import type { ComodoDetectado, ProblemaComodo } from "./roomDetection";
-import { distribuirPontosNoContorno, anguloFaceandoParede } from "./roomDetection";
-import type { TipoAmbiente } from "./cargasEletricas";
+import { distribuirPontosNoContorno, anguloFaceandoParede, pontoDentroDoPoligono } from "./roomDetection";
+import type { TipoAmbiente, TueInput } from "./cargasEletricas";
 import { ROTULO_TIPO_AMBIENTE } from "./cargasEletricas";
 import { getBlockDef, type BlockDef } from "./blocks";
-import type { NovaGeometria } from "./types";
+import type { Geometria, NovaGeometria } from "./types";
 import { distanciaAoSegmento } from "./geom";
 
 export const ORIGEM_GERADOR_LANCAMENTO_ELETRICO = "lancamentoEletrico";
@@ -85,8 +85,12 @@ const FATOR_INSET_POR_BLOCO: Record<string, number> = {
   tomada_media: 0.32,
   tomada_alta: 0.32,
   tomada_chuveiro: 0.32,
+  tomada_tue: 0.32,
   interruptor_simples: 0.3,
 };
+
+/** Nomes de bloco (`BlocoGeometria.nome`) considerados "tomada de uso geral" (TUG) pra fins de contagem -- ver `contarBlocosNoComodo`. NÃO inclui `tomada_chuveiro`/`tomada_tue` (essas são TUE, circuito exclusivo, contadas à parte). */
+const BLOCOS_TOMADA_TUG = ["tomada_baixa", "tomada_media", "tomada_alta"];
 
 /** Distância (mm) da linha de parede até o CENTRO do bloco `nomeBloco`, calculada a partir da altura real do bloco (ver `FATOR_INSET_POR_BLOCO`) -- ver comentário acima. */
 function insetParaBloco(nomeBloco: string): number {
@@ -109,6 +113,79 @@ export function quantidadeTomadasNBR(tipo: TipoAmbiente, perimetroM: number): nu
   return Math.max(1, Math.ceil((perimetroM * 1000) / espacamentoMm));
 }
 
+/**
+ * Conta quantos blocos com `nome` em `nomesBloco` caem DENTRO do contorno
+ * de `comodo` -- usado por `contarTomadasELampadasReais` pra saber quantas
+ * tomadas/pontos de luz JÁ EXISTEM de fato na planta baixa (lançadas
+ * automaticamente OU adicionadas/removidas manualmente pelo projetista
+ * depois), em vez de só estimar pela fórmula da NBR 5410. Devolve `null`
+ * quando o cômodo não tem contorno confiável (`contornoConfiavel` falso) --
+ * quem chama decide o fallback (ver comentário em `contarTomadasELampadasReais`).
+ */
+export function contarBlocosNoComodo(comodo: ComodoDetectado, geometriaCompleta: Geometria[], nomesBloco: string[]): number | null {
+  if (!comodo.contornoConfiavel || !comodo.contorno) return null;
+  const contorno = comodo.contorno;
+  let total = 0;
+  for (const g of geometriaCompleta) {
+    if (g.tipo !== "bloco" || !nomesBloco.includes(g.nome)) continue;
+    if (pontoDentroDoPoligono({ x: g.x, y: g.y }, contorno)) total++;
+  }
+  return total;
+}
+
+/**
+ * Iteração 44 -- pedido do usuário: "se depois eu resolver lançar mais
+ * tomadas na planta baixa manualmente o botao deve atualizar o quadro de
+ * cargas e tabelas". Quantidade de tomadas (TUG)/pontos de luz "reais" de
+ * um cômodo: conta os blocos DE FATO presentes na planta (via
+ * `contarBlocosNoComodo`) -- reflete qualquer tomada/luminária que o
+ * projetista tenha adicionado ou removido manualmente depois do
+ * lançamento automático. Cai de volta pra estimativa normativa (NBR 5410)
+ * só quando a contagem real vier zerada (planta ainda sem nenhum ponto
+ * lançado -- ex.: antes do 1º "Lançar tomadas/iluminação") ou sem contorno
+ * confiável, pra não regredir o preenchimento inicial de
+ * `CargasEletricasModal.tsx` (que sempre teve um valor default sensato,
+ * mesmo sem nenhum bloco ainda desenhado).
+ */
+export function contarTomadasELampadasReais(
+  comodo: ComodoDetectado,
+  geometriaCompleta: Geometria[]
+): { quantidadeTomadas: number; quantidadeLampadas: number } {
+  const tomadasReais = contarBlocosNoComodo(comodo, geometriaCompleta, BLOCOS_TOMADA_TUG);
+  const lampadasReais = contarBlocosNoComodo(comodo, geometriaCompleta, ["ponto_luz_teto"]);
+  return {
+    quantidadeTomadas: tomadasReais && tomadasReais > 0 ? tomadasReais : quantidadeTomadasNBR(comodo.tipo, comodo.perimetroM),
+    quantidadeLampadas: lampadasReais && lampadasReais > 0 ? lampadasReais : 1,
+  };
+}
+
+/** Ambiente pronto pra alimentar `CargasEletricasModal.tsx` -- pré-preenchimento inicial OU sincronização manual (ver `montarAmbientesPreenchimento`). */
+export interface AmbientePreenchimento {
+  nome: string;
+  tipo: TipoAmbiente;
+  areaM2: number;
+  quantidadeTomadas: number;
+  quantidadeLampadas: number;
+}
+
+/**
+ * Constrói a lista de ambientes pronta pra `CargasEletricasModal.tsx` a
+ * partir dos cômodos detectados na planta baixa -- nome/tipo/área vêm
+ * direto da detecção; quantidade de tomadas/lâmpadas vem da contagem REAL
+ * de blocos já lançados (`contarTomadasELampadasReais`), com fallback pra
+ * estimativa da NBR 5410 quando ainda não há nenhum bloco na planta.
+ * Usada tanto no PRIMEIRO preenchimento do modal quanto no botão "🔄
+ * Sincronizar com a planta baixa" (Iteração 44) -- mesma fonte de dados
+ * pros 2 casos, só muda o que quem chama faz com o resultado (substituir
+ * tudo vs. mesclar preservando TUEs/ambientes manuais já digitados).
+ */
+export function montarAmbientesPreenchimento(comodos: ComodoDetectado[], geometriaCompleta: Geometria[]): AmbientePreenchimento[] {
+  return comodos.map((c) => {
+    const { quantidadeTomadas, quantidadeLampadas } = contarTomadasELampadasReais(c, geometriaCompleta);
+    return { nome: c.nome, tipo: c.tipo, areaM2: c.areaM2, quantidadeTomadas, quantidadeLampadas };
+  });
+}
+
 export interface ResumoComodoLancamento {
   nome: string;
   tipoRotulo: string;
@@ -119,11 +196,22 @@ export interface ResumoComodoLancamento {
   /** `false` quando o contorno não pôde ser traçado com segurança -- só o ponto de luz foi lançado automaticamente (ver cabeçalho do módulo/`roomDetection.ts`). */
   pontosAutomaticos: boolean;
   observacao?: string;
+  /**
+   * Iteração 44 -- nomes dos equipamentos de uso específico (TUE, ex.:
+   * "Ar-condicionado", "Fogão de indução") cadastrados no Dimensionamento
+   * de Cargas (`dadosCargasEletricas`) pra este cômodo e cujo símbolo
+   * (`tomada_tue`) foi lançado automaticamente aqui. Vazio quando o
+   * cômodo não tem nenhum TUE cadastrado ainda, ou quando o contorno não
+   * é confiável (mesma limitação das tomadas/interruptor comuns).
+   */
+  nomesTuesLancados: string[];
 }
 
 export interface ResumoLancamentoEletrico {
   comodosProcessados: number;
   totalTomadas: number;
+  /** Iteração 44 -- total de símbolos `tomada_tue` lançados (soma de `nomesTuesLancados` de todos os cômodos). */
+  totalTues: number;
   totalPontosLuz: number;
   totalInterruptores: number;
   porComodo: ResumoComodoLancamento[];
@@ -209,17 +297,50 @@ function deslocarAoLongoDaNormal(
 }
 
 /**
+ * Normaliza o nome de um cômodo para comparação (remove acentos, corta
+ * espaços nas pontas, minúsculas) -- usado pra casar `ComodoDetectado.nome`
+ * (da planta baixa) com `AmbienteInput.nome` (do Dimensionamento de
+ * Cargas), que podem divergir em maiúsculas/espaços mesmo representando o
+ * mesmo cômodo (ex.: "Cozinha" vs "cozinha "). Ver `gerarPontosEletricos`.
+ */
+export function normalizarNomeComodo(nome: string): string {
+  return nome
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+/**
  * Núcleo puro do gerador: recebe os cômodos já detectados (ver
  * `roomDetection.ts#detectarComodos`) e devolve a geometria nova (tomadas,
  * interruptores, pontos de luz -- SEM legenda, ver `gerarLegendaEletrica`
  * separado) + o resumo. Quem chama (o store) decide onde ancorar a
  * legenda e cuida de camadas/undo/provenance -- mesma separação de
  * responsabilidade dos outros geradores (`sistemaSolo.ts`/`cargasEletricas.ts`).
+ *
+ * `tuesPorComodoNome` (Iteração 44, pedido do usuário: "adicionei umas tue
+ * na cozinha como ar condicionado e fogao de inducao, quero que se eu
+ * lançar circuitos extras a simbologia dessas tomadas apareçam
+ * automaticamente no comodo") -- mapa OPCIONAL nome-normalizado-do-cômodo
+ * -> lista de TUEs cadastrados nele no Dimensionamento de Cargas
+ * (`dadosCargasEletricas`, ver `store.ts#gerarLancamentoEletrico`). Quando
+ * presente e o cômodo tem contorno confiável, lança 1 símbolo
+ * `tomada_tue` + 1 texto com o nome do equipamento para CADA TUE do
+ * cômodo, distribuídos ao longo do MESMO contorno que as tomadas comuns
+ * (mesma chamada de `distribuirPontosNoContorno`, com a quantidade total
+ * -- tomadas + TUEs -- pra ficarem uniformemente espaçados sem sobrepor
+ * ninguém). Ausente/vazio (comportamento de sempre): nenhum símbolo TUE é
+ * lançado, exatamente como antes desta iteração.
  */
-export function gerarPontosEletricos(comodos: ComodoDetectado[]): { geometria: NovaGeometria[]; resumo: ResumoLancamentoEletrico } {
+export function gerarPontosEletricos(
+  comodos: ComodoDetectado[],
+  tuesPorComodoNome?: Map<string, TueInput[]>
+): { geometria: NovaGeometria[]; resumo: ResumoLancamentoEletrico } {
   const geometria: NovaGeometria[] = [];
   const porComodo: ResumoComodoLancamento[] = [];
   let totalTomadas = 0;
+  let totalTues = 0;
   let totalPontosLuz = 0;
   let totalInterruptores = 0;
   const observacoesGerais = new Set<string>();
@@ -227,6 +348,8 @@ export function gerarPontosEletricos(comodos: ComodoDetectado[]): { geometria: N
   for (const comodo of comodos) {
     const quantidade = quantidadeTomadasNBR(comodo.tipo, comodo.perimetroM);
     const blocoTomada = blocoTomadaPorTipo(comodo.tipo);
+    const tuesDoComodo = tuesPorComodoNome?.get(normalizarNomeComodo(comodo.nome)) ?? [];
+    const nomesTuesLancados: string[] = [];
 
     // Ponto de luz: sempre seguro de lançar (centroide já garantido dentro
     // do cômodo mesmo sem contorno confiável -- ver `roomDetection.ts`).
@@ -238,11 +361,53 @@ export function gerarPontosEletricos(comodos: ComodoDetectado[]): { geometria: N
 
     if (comodo.contornoConfiavel && comodo.contorno) {
       const insetTomada = insetParaBloco(blocoTomada);
-      const pontosTomadas = distribuirPontosNoContorno(comodo.contorno, quantidade, insetTomada, comodo.centroide);
+      const insetTue = insetParaBloco("tomada_tue");
+      // Distribui tomadas comuns + TUEs NUMA SÓ chamada (quantidade total)
+      // pra ficarem uniformemente espaçados ao longo do contorno inteiro,
+      // sem risco de 2 símbolos caírem no mesmo ponto -- os primeiros
+      // `quantidade` pontos vão pras tomadas comuns, o restante (se
+      // houver TUE cadastrado) pras TUEs, na ordem em que foram
+      // cadastradas no modal.
+      const pontosTotais = distribuirPontosNoContorno(comodo.contorno, quantidade + tuesDoComodo.length, insetTomada, comodo.centroide);
+      const pontosTomadas = pontosTotais.slice(0, quantidade);
+      const pontosTues = pontosTotais.slice(quantidade);
       for (const p of pontosTomadas) {
         geometria.push(criarBloco(blocoTomada, p.x, p.y, CAMADA_TOMADAS, p.anguloGraus));
         totalTomadas++;
       }
+      // Reajusta o inset de cada ponto de TUE especificamente pro tamanho
+      // do bloco `tomada_tue` (pode diferir do `blocoTomada` do cômodo) --
+      // a distribuição acima usou `insetTomada` pra todos só pra garantir
+      // o espaçamento uniforme; aqui desloca cada ponto de TUE um pouco
+      // mais/menos, ao longo da MESMA normal (preservada implicitamente:
+      // reconstruída a partir do ângulo já calculado -- ver
+      // `anguloFaceandoParede`, cuja transformação inversa é
+      // `nx=sen(A), ny=-cos(A)`), pra bater com a altura real do bloco.
+      pontosTues.forEach((p, i) => {
+        const tue = tuesDoComodo[i];
+        const rad = (p.anguloGraus * Math.PI) / 180;
+        const nx = Math.sin(rad);
+        const ny = -Math.cos(rad);
+        const ajuste = insetTue - insetTomada;
+        const px = p.x + nx * ajuste;
+        const py = p.y + ny * ajuste;
+        geometria.push(criarBloco("tomada_tue", px, py, CAMADA_TOMADAS, p.anguloGraus));
+        // Texto com o nome do equipamento, um pouco mais pra dentro do
+        // cômodo que o próprio símbolo (mesma normal), pra não ficar
+        // colado na parede nem sobrepor o símbolo -- só anotação visual,
+        // livre pra o projetista arrastar depois (é um `texto` comum).
+        const insetRotulo = insetTue + (getBlockDef("tomada_tue")?.altura ?? 200) * 0.75;
+        geometria.push({
+          tipo: "texto",
+          camada: CAMADA_TOMADAS,
+          x: p.x + nx * insetRotulo,
+          y: p.y + ny * insetRotulo,
+          conteudo: tue?.nome?.trim() || "TUE",
+          fontSize: 70,
+        });
+        totalTues++;
+        nomesTuesLancados.push(tue?.nome?.trim() || "TUE");
+      });
       const maisProximo = pontoDoContornoMaisProximo(comodo.contorno, comodo.centroide);
       const insetInterruptor = insetParaBloco("interruptor_simples");
       let posInterruptor = deslocarAoLongoDaNormal(maisProximo.ponto, maisProximo.nx, maisProximo.ny, insetInterruptor);
@@ -289,7 +454,11 @@ export function gerarPontosEletricos(comodos: ComodoDetectado[]): { geometria: N
       totalInterruptores++;
       pontosAutomaticos = true;
     } else {
-      observacao = `Contorno não pôde ser traçado com segurança -- adicione manualmente ${quantidade} tomada(s) (${blocoTomada}) e 1 interruptor.`;
+      observacao =
+        `Contorno não pôde ser traçado com segurança -- adicione manualmente ${quantidade} tomada(s) (${blocoTomada}) e 1 interruptor` +
+        (tuesDoComodo.length > 0
+          ? `, além do(s) TUE(s) cadastrado(s) (${tuesDoComodo.map((t) => t.nome).join(", ")} -- bloco "tomada_tue").`
+          : ".");
       observacoesGerais.add("1 ou mais cômodos ficaram sem contorno seguro para posicionar tomadas/interruptor automaticamente -- ver observação de cada cômodo.");
     }
 
@@ -316,6 +485,7 @@ export function gerarPontosEletricos(comodos: ComodoDetectado[]): { geometria: N
       blocoTomada,
       pontosAutomaticos,
       observacao,
+      nomesTuesLancados,
     });
   }
 
@@ -325,6 +495,14 @@ export function gerarPontosEletricos(comodos: ComodoDetectado[]): { geometria: N
   observacoesGerais.add(
     "Quantidades são o MÍNIMO normativo (NBR 5410, 9.5.2) -- acrescente tomadas extras por conveniência conforme o layout de móveis do projeto, se desejar."
   );
+  // Iteração 44 -- só avisa sobre a posição aproximada da TUE quando
+  // alguma foi de fato lançada nesta geração (evita ruído/observação
+  // irrelevante em projetos que ainda não usam TUE nenhuma).
+  if (totalTues > 0) {
+    observacoesGerais.add(
+      "Símbolo(s) de TUE (tomada de uso específico) posicionado(s) de forma APROXIMADA ao longo do contorno do cômodo -- arraste pra posição exata do equipamento real (ex.: ao lado da unidade de ar-condicionado, atrás do fogão) antes de finalizar o projeto."
+    );
+  }
 
   // Marca proveniência (Iteração 29h, mesmo padrão de `sistemaSolo.ts`/
   // `cargasEletricas.ts`) -- permite ao store substituir só a geometria de
@@ -337,6 +515,7 @@ export function gerarPontosEletricos(comodos: ComodoDetectado[]): { geometria: N
     resumo: {
       comodosProcessados: comodos.length,
       totalTomadas,
+      totalTues,
       totalPontosLuz,
       totalInterruptores,
       porComodo,

@@ -124,7 +124,8 @@ function LancamentoEletricoResultModal({
             <>
               <p className="mb-2">
                 {resumo.comodosProcessados} cômodo(s) processado(s): {resumo.totalTomadas} tomada(s),{" "}
-                {resumo.totalPontosLuz} ponto(s) de luz, {resumo.totalInterruptores} interruptor(es).
+                {resumo.totalPontosLuz} ponto(s) de luz, {resumo.totalInterruptores} interruptor(es)
+                {resumo.totalTues > 0 && <>, {resumo.totalTues} TUE(s)</>}.
               </p>
               <table className="mb-3 w-full border-collapse text-[11px]">
                 <thead>
@@ -133,6 +134,7 @@ function LancamentoEletricoResultModal({
                     <th className="py-1 pr-2">Tipo</th>
                     <th className="py-1 pr-2">Área</th>
                     <th className="py-1 pr-2">Tomadas</th>
+                    <th className="py-1 pr-2">TUE(s)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -143,6 +145,9 @@ function LancamentoEletricoResultModal({
                       <td className="py-1 pr-2">{c.areaM2.toFixed(1)}m²</td>
                       <td className="py-1 pr-2">
                         {c.quantidadeTomadas} {!c.pontosAutomaticos && "(manual)"}
+                      </td>
+                      <td className="py-1 pr-2">
+                        {c.nomesTuesLancados.length > 0 ? c.nomesTuesLancados.join(", ") : "--"}
                       </td>
                     </tr>
                   ))}

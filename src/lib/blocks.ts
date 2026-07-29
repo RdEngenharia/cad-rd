@@ -250,6 +250,34 @@ export const BLOCK_LIBRARY: BlockDef[] = [
     `,
   },
   {
+    // Iteração 44 -- pedido do usuário: "adicionei umas tue na cozinha
+    // como ar condicionado e fogao de inducao, quero que se eu lançar
+    // circuitos extras a simbologia dessas tomadas apareçam
+    // automaticamente no comodo". Generaliza o espírito do
+    // "tomada_chuveiro" (ponto de força dedicado/circuito exclusivo) pra
+    // QUALQUER equipamento de uso específico cadastrado no modal de
+    // Dimensionamento de Cargas (`CargasEletricasModal.tsx`) -- ar-
+    // condicionado, fogão de indução, etc. Ao contrário do
+    // "tomada_chuveiro" (sempre manual, comentário abaixo), este símbolo
+    // É lançado automaticamente por `lib/lancamentoEletrico.ts`, um por
+    // TUE cadastrado no ambiente correspondente -- sempre acompanhado de
+    // um texto com o NOME do equipamento (ver `gerarPontosEletricos`),
+    // já que um cômodo pode ter mais de uma TUE diferente (ex.: ar-
+    // condicionado E fogão na mesma cozinha) e o símbolo sozinho não
+    // diferencia qual é qual. Posição é aproximada (mesmo critério de
+    // espaçamento ao longo do contorno dos outros pontos de tomada) --
+    // o projetista pode arrastar pra posição exata depois.
+    id: "tomada_tue",
+    label: "Tomada TUE (uso específico)",
+    descricao: "Ponto de força dedicado (circuito exclusivo) para equipamento de uso específico (TUE) -- ex.: ar-condicionado, fogão de indução",
+    largura: 176,
+    altura: 208,
+    svgInner: `
+      <polygon points="50,8 12,84 88,84" fill="white" stroke="${STROKE}" stroke-width="4.5"/>
+      <text x="50" y="76" font-size="16" text-anchor="middle" fill="${STROKE}" font-family="sans-serif">TUE</text>
+    `,
+  },
+  {
     id: "interruptor_simples",
     label: "Interruptor Simples",
     descricao: "Interruptor de 1 seção (liga/desliga 1 circuito de iluminação) -- símbolo de planta baixa",

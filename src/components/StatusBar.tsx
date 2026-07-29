@@ -176,6 +176,9 @@ export function StatusBar() {
   const setUnidadeDesenho = useCadStore((s) => s.setUnidadeDesenho);
   const orthoAtivo = useCadStore((s) => s.orthoAtivo);
   const toggleOrtho = useCadStore((s) => s.toggleOrtho);
+  // Iteração 44 -- tema do fundo do Desenho ("claro"/"escuro", ver `lib/temaCanvas.ts`).
+  const temaCanvas = useCadStore((s) => s.temaCanvas);
+  const alternarTemaCanvas = useCadStore((s) => s.alternarTemaCanvas);
 
   // Iteração 12s: casas decimais e "step" do campo de grid ajustados pra
   // unidade escolhida -- mm inteiro, cm com 1 casa, m com 2 casas (mesmo
@@ -270,6 +273,16 @@ export function StatusBar() {
           }`}
         >
           ORTHO {orthoAtivo ? "ON" : "OFF"}
+        </button>
+        <button
+          type="button"
+          onClick={alternarTemaCanvas}
+          title="Fundo do Desenho (Model Space): claro (padrão) ou escuro, igual à opção de fundo do AutoCAD -- só a Prancha (papel) continua sempre branca"
+          className={`rounded px-2 py-0.5 font-semibold ${
+            temaCanvas === "escuro" ? "bg-blue-100 text-blue-700" : "bg-slate-200 text-slate-500"
+          }`}
+        >
+          {temaCanvas === "escuro" ? "🌙 TEMA ESCURO" : "☀️ TEMA CLARO"}
         </button>
         <PaginaTabs />
       </div>

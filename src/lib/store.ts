@@ -58,6 +58,7 @@ import {
   CAMADA_TERRA_INFO,
   type DadosCargasEletricas,
   type ResumoCargasEletricas,
+  type TueInput,
 } from "./cargasEletricas";
 import type { Viewport } from "./snap";
 import type { TipoOsnap } from "./osnap";
@@ -80,13 +81,17 @@ import { bboxCombinada, caixaContida, caixaEnvolvente, caixasSeCruzam, type Caix
 import { aplicarStretchNaGeometria, aplicarStretchArestaNaGeometria } from "./grips";
 import { getBlockDef } from "./blocks";
 import type { UnidadeDesenho } from "./unidades";
-import { detectarComodosComFallbackDeTexto, type ComodoDetectado, type ProblemaComodo } from "./roomDetection";
+import { carregarTemaCanvasSalvo, salvarTemaCanvas, type TemaCanvas } from "./temaCanvas";
+import { detectarComodosComFallbackDeTexto, type ProblemaComodo } from "./roomDetection";
 import {
   gerarPontosEletricos,
   gerarLegendaEletrica,
   ORIGEM_GERADOR_LANCAMENTO_ELETRICO,
   CAMADAS_LANCAMENTO_ELETRICO,
+  montarAmbientesPreenchimento,
+  normalizarNomeComodo,
   type ResumoLancamentoEletrico,
+  type AmbientePreenchimento,
 } from "./lancamentoEletrico";
 
 interface Ponto {
@@ -450,6 +455,17 @@ interface CadState {
   toggleSnap: () => void;
   setUnidadeDesenho: (u: UnidadeDesenho) => void;
   toggleOrtho: () => void;
+  /**
+   * Iteração 44 -- tema do fundo do Desenho (Model Space): "claro"
+   * (padrão) ou "escuro", igual à opção de fundo do AutoCAD. Preferência
+   * de EXIBIÇÃO pessoal (persistida em localStorage via `temaCanvas.ts`,
+   * NÃO salva junto do projeto) -- ver comentário completo lá. Só afeta
+   * `CanvasStage.tsx` (cor de fundo do container) e `GridLayer.tsx` (cor
+   * do grid/eixos); nunca a Prancha (papel sempre branco) nem as cores de
+   * camada/geometria.
+   */
+  temaCanvas: TemaCanvas;
+  alternarTemaCanvas: () => void;
   setActiveSheet: (f: FormatoFolha) => void;
   setPontoRascunho: (p: Ponto | null) => void;
   setPonteiroMundo: (p: Ponto | null) => void;
@@ -747,7 +763,7 @@ interface CadState {
    * continua preenchendo o formulário manualmente do zero, sem nenhum
    * diálogo de erro no meio do caminho).
    */
-  detectarComodosParaCargas: () => ComodoDetectado[];
+  detectarComodosParaCargas: () => AmbientePreenchimento[];
 
   // Viewport / MVIEW + ZOOM WINDOW (Sprint 5) --------------------------------
   /** Entra ("Model Ativo") ou sai (`null`) do foco de pan/zoom de um viewport -- ver `viewportAtivoId`. */
@@ -1237,6 +1253,10 @@ export const useCadStore = create<CadState>((set, get) => {
   snapAtivo: true,
   unidadeDesenho: "mm",
   orthoAtivo: false,
+  // Iteração 44 -- lê a preferência de tema salva no navegador (se
+  // houver); "claro" é o padrão de sempre (nunca muda o comportamento de
+  // quem nunca mexeu no toggle).
+  temaCanvas: carregarTemaCanvasSalvo() ?? "claro",
   activeSheet: "A4",
   pontoRascunho: null,
   ponteiroMundo: null,
@@ -1425,6 +1445,13 @@ export const useCadStore = create<CadState>((set, get) => {
   setUnidadeDesenho: (u) => set({ unidadeDesenho: u }),
 
   toggleOrtho: () => set((state) => ({ orthoAtivo: !state.orthoAtivo })),
+
+  alternarTemaCanvas: () =>
+    set((state) => {
+      const novoTema: TemaCanvas = state.temaCanvas === "claro" ? "escuro" : "claro";
+      salvarTemaCanvas(novoTema);
+      return { temaCanvas: novoTema };
+    }),
 
   setActiveSheet: (f) => set({ activeSheet: f }),
 
@@ -3003,7 +3030,19 @@ export const useCadStore = create<CadState>((set, get) => {
       return { ok: false, resumo: null, problemas: deteccao.problemas };
     }
 
-    const { geometria: pontosEletricos, resumo } = gerarPontosEletricos(deteccao.comodos);
+    // Iteração 44 -- pedido do usuário: "adicionei umas tue na cozinha
+    // como ar condicionado e fogao de inducao, quero que se eu lançar
+    // circuitos extras a simbologia dessas tomadas apareçam
+    // automaticamente no comodo". Monta um mapa nome-normalizado-do-
+    // cômodo -> lista de TUEs a partir do Dimensionamento de Cargas já
+    // salvo no projeto (`dadosCargasEletricas`, ver `CargasEletricasModal.tsx`)
+    // -- se o usuário ainda não gerou nenhum dimensionamento, o mapa fica
+    // vazio e `gerarPontosEletricos` se comporta exatamente como antes
+    // (nenhum símbolo de TUE lançado).
+    const tuesPorComodoNome = new Map<string, TueInput[]>(
+      (get().projeto.dadosCargasEletricas?.ambientes ?? []).map((a) => [normalizarNomeComodo(a.nome), a.tues])
+    );
+    const { geometria: pontosEletricos, resumo } = gerarPontosEletricos(deteccao.comodos, tuesPorComodoNome);
 
     // Legenda ancorada à DIREITA da bounding box da própria seleção (a
     // "casa") -- este gerador sobrepõe uma planta já existente em
@@ -3055,7 +3094,17 @@ export const useCadStore = create<CadState>((set, get) => {
     const geometriaSelecionada = geometriaCompleta.filter((g) => idsSelecionados.includes(g.id));
     const deteccao = detectarComodosComFallbackDeTexto(geometriaSelecionada, geometriaCompleta);
     if (deteccao.problemas.length > 0 || deteccao.comodos.length === 0) return [];
-    return deteccao.comodos;
+    // Iteração 44: quantidade de tomadas/lâmpadas agora vem da CONTAGEM
+    // REAL de blocos já presentes na planta (`montarAmbientesPreenchimento`),
+    // com fallback pra estimativa NBR só quando ainda não há nenhum bloco
+    // lançado -- ver comentário completo lá. Antes disso, este método
+    // sempre devolvia a estimativa normativa pura (via `quantidadeTomadasNBR`
+    // calculado no próprio `CargasEletricasModal.tsx`), nunca refletindo
+    // tomadas adicionadas/removidas manualmente pelo projetista depois do
+    // lançamento automático -- o mesmo método agora serve tanto o
+    // preenchimento inicial do modal quanto o botão "🔄 Sincronizar com a
+    // planta baixa".
+    return montarAmbientesPreenchimento(deteccao.comodos, geometriaCompleta);
   },
 
   // Viewport / MVIEW + ZOOM WINDOW (Sprint 5) --------------------------------

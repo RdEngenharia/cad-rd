@@ -433,8 +433,15 @@ function areaPoligono(pontos: Ponto[]): number {
   return Math.abs(s) / 2;
 }
 
-/** Teste ponto-em-polígono (ray casting) -- usado só pra validar se o centroide calculado cai de fato dentro do próprio cômodo (ver comentário em `detectarComodos`). */
-function pontoDentroDoPoligono(p: Ponto, poligono: Ponto[]): boolean {
+/**
+ * Teste ponto-em-polígono (ray casting) -- usado internamente pra validar
+ * se o centroide calculado cai de fato dentro do próprio cômodo (ver
+ * comentário em `detectarComodos`). Exportado a partir da Iteração 44 pra
+ * `lib/lancamentoEletrico.ts` reaproveitar na contagem de blocos (tomadas/
+ * pontos de luz) REALMENTE presentes dentro de cada cômodo -- em vez de só
+ * estimar pela fórmula da NBR 5410, ver `contarBlocosNoComodo`.
+ */
+export function pontoDentroDoPoligono(p: Ponto, poligono: Ponto[]): boolean {
   let dentro = false;
   for (let i = 0, j = poligono.length - 1; i < poligono.length; j = i++) {
     const pi = poligono[i];

@@ -41,7 +41,6 @@ import {
   type TipoAmbiente,
   type TueInput,
 } from "@/lib/cargasEletricas";
-import { quantidadeTomadasNBR } from "@/lib/lancamentoEletrico";
 
 interface CargasEletricasModalProps {
   onFechar: () => void;
@@ -164,15 +163,26 @@ export function CargasEletricasModal({ onFechar }: CargasEletricasModalProps) {
   // manual quando não há planta baixa (projetista que só recebeu
   // quantidades) -- `detectarComodosParaCargas` devolve `[]` nesse caso,
   // sem nenhum diálogo/bloqueio, e o formulário cai no exemplo de sempre.
+  //
+  // Iteração 44 -- a partir desta versão, `detectarComodosParaCargas` já
+  // devolve a quantidade de tomadas/lâmpadas REAL (contagem de blocos já
+  // lançados na planta, com fallback pra estimativa NBR só quando ainda
+  // não há nenhum bloco) -- não precisa mais chamar `quantidadeTomadasNBR`
+  // aqui. O MESMO método agora alimenta também o botão "🔄 Sincronizar com
+  // a planta baixa" abaixo (pedido do usuário: "se depois eu resolver
+  // lançar mais tomadas na planta baixa manualmente o botao deve
+  // atualizar o quadro de cargas e tabelas").
   const detectarComodosParaCargas = useCadStore((s) => s.detectarComodosParaCargas);
   const [preenchidoDaPlantaBaixa] = useState(() => !dadosSalvos && detectarComodosParaCargas().length > 0);
+  const podeSincronizarDaPlanta = useCadStore((s) => s.selecionadoIds.length > 0);
+  const [statusSincronizacao, setStatusSincronizacao] = useState<string | null>(null);
 
   const [ambientes, setAmbientes] = useState<FormAmbiente[]>(() => {
     if (dadosSalvos) return dadosParaForm(dadosSalvos);
     const comodosDaPlanta = detectarComodosParaCargas();
     if (comodosDaPlanta.length > 0) {
       return comodosDaPlanta.map((c) =>
-        novoAmbiente(c.nome, c.tipo, paraCampo(c.areaM2), paraCampo(quantidadeTomadasNBR(c.tipo, c.perimetroM)), "1")
+        novoAmbiente(c.nome, c.tipo, paraCampo(c.areaM2), paraCampo(c.quantidadeTomadas), paraCampo(c.quantidadeLampadas))
       );
     }
     return [
@@ -182,6 +192,58 @@ export function CargasEletricasModal({ onFechar }: CargasEletricasModalProps) {
       novoAmbiente("Banheiro", "banheiro", "4", "1", "1"),
     ];
   });
+
+  /**
+   * Iteração 44 -- "🔄 Sincronizar com a planta baixa": pedido do usuário
+   * ("se depois eu resolver lançar mais tomadas na planta baixa
+   * manualmente o botao deve atualizar o quadro de cargas e tabelas").
+   * Re-detecta os cômodos da MESMA seleção atual e MESCLA no formulário
+   * já aberto, em vez de substituir tudo:
+   *  - Ambiente já existente no formulário (casado por NOME, sem
+   *    diferenciar maiúsculas/espaços) -- atualiza tipo/área/quantidade de
+   *    tomadas/lâmpadas a partir da planta, mas PRESERVA os TUEs já
+   *    cadastrados nele (nunca apaga um ar-condicionado/chuveiro digitado
+   *    à mão).
+   *  - Cômodo novo na planta que ainda não está no formulário -- é
+   *    ACRESCENTADO (sem TUEs, o usuário adiciona se precisar).
+   *  - Ambiente do formulário que não bate com nenhum cômodo detectado
+   *    (ex.: projeto sem planta baixa, ou nome digitado manualmente
+   *    diferente) -- fica INTOCADO, nunca é removido automaticamente.
+   */
+  function sincronizarComPlantaBaixa() {
+    const comodosDaPlanta = detectarComodosParaCargas();
+    if (comodosDaPlanta.length === 0) {
+      setStatusSincronizacao("Nenhum cômodo detectado na seleção atual -- selecione a planta baixa (paredes + nomes) antes de sincronizar.");
+      return;
+    }
+    let atualizados = 0;
+    let adicionados = 0;
+    setAmbientes((lista) => {
+      const porNomeNormalizado = new Map(lista.map((a, i) => [a.nome.trim().toLocaleLowerCase("pt-BR"), i]));
+      const proxima = [...lista];
+      for (const c of comodosDaPlanta) {
+        const idx = porNomeNormalizado.get(c.nome.trim().toLocaleLowerCase("pt-BR"));
+        if (idx !== undefined) {
+          proxima[idx] = {
+            ...proxima[idx],
+            tipo: c.tipo,
+            areaM2: paraCampo(c.areaM2),
+            quantidadeTomadas: paraCampo(c.quantidadeTomadas),
+            quantidadeLampadas: paraCampo(c.quantidadeLampadas),
+            // `tues` (equipamentos de uso específico) nunca é tocado aqui.
+          };
+          atualizados++;
+        } else {
+          proxima.push(novoAmbiente(c.nome, c.tipo, paraCampo(c.areaM2), paraCampo(c.quantidadeTomadas), paraCampo(c.quantidadeLampadas)));
+          adicionados++;
+        }
+      }
+      return proxima;
+    });
+    setStatusSincronizacao(
+      `Sincronizado ✓ -- ${atualizados} ambiente(s) atualizado(s)${adicionados > 0 ? `, ${adicionados} novo(s) adicionado(s)` : ""}. Os TUEs já cadastrados foram preservados.`
+    );
+  }
 
   const [tensaoFaseV, setTensaoFaseV] = useState(() => (dadosSalvos ? paraCampo(dadosSalvos.config.tensaoFaseV) : "127"));
   const [tensaoEntradaV, setTensaoEntradaV] = useState(() => (dadosSalvos ? paraCampo(dadosSalvos.config.tensaoEntradaV) : "220"));
@@ -381,7 +443,25 @@ export function CargasEletricasModal({ onFechar }: CargasEletricasModalProps) {
         <div className="flex-1 overflow-y-auto px-4 py-3">
           {!resumo ? (
             <>
-              <h3 className={SUBTITULO}>1. Ambientes, tomadas, lâmpadas e equipamentos de uso específico (TUE)</h3>
+              <div className="flex items-center justify-between gap-2">
+                <h3 className={SUBTITULO}>1. Ambientes, tomadas, lâmpadas e equipamentos de uso específico (TUE)</h3>
+                <button
+                  type="button"
+                  onClick={sincronizarComPlantaBaixa}
+                  disabled={!podeSincronizarDaPlanta}
+                  title={
+                    podeSincronizarDaPlanta
+                      ? "Re-lê a planta baixa selecionada e atualiza área/quantidade de tomadas/lâmpadas de cada ambiente (preserva os TUEs já cadastrados) -- use depois de lançar/apagar tomadas manualmente na planta"
+                      : "Selecione a planta baixa (paredes + nomes dos cômodos) no desenho para poder sincronizar"
+                  }
+                  className="shrink-0 rounded border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent"
+                >
+                  🔄 Sincronizar com a planta baixa
+                </button>
+              </div>
+              {statusSincronizacao && (
+                <p className="mb-2 mt-1 rounded border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] text-blue-700">{statusSincronizacao}</p>
+              )}
               <div className="flex flex-col gap-2" data-testid="campos-ambientes-cargas">
                 {ambientes.map((amb, idxAmbiente) => (
                   <div key={idxAmbiente} className="rounded border border-slate-200 p-2">

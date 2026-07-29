@@ -3,18 +3,37 @@
 import { Layer, Line } from "react-konva";
 import { useMemo } from "react";
 import type { Viewport } from "@/lib/snap";
+import type { TemaCanvas } from "@/lib/temaCanvas";
 
 interface GridLayerProps {
   viewport: Viewport;
   stageWidth: number;
   stageHeight: number;
   gridSize: number;
+  /** Iteração 44 -- tema do fundo do Desenho ("claro"/"escuro", ver `lib/temaCanvas.ts`) -- decide a paleta do grid/eixos abaixo. Default "claro" (comportamento de sempre) quando omitido, pra não quebrar nenhum outro chamador/teste que ainda não passa essa prop. */
+  tema?: TemaCanvas;
 }
 
 const MAX_LINHAS = 400; // teto de linhas desenhadas por eixo, por performance
-const COR_GRID_MENOR = "#e2e8f0";
-const COR_GRID_MAIOR = "#94a3b8";
-const COR_EIXO = "#64748b";
+
+// Paleta original, calibrada pro fundo CLARO (`bg-slate-100`) do container --
+// ver `CanvasStage.tsx`.
+const CORES_CLARO = {
+  gridMenor: "#e2e8f0",
+  gridMaior: "#94a3b8",
+  eixo: "#64748b",
+};
+
+// Iteração 44 -- paleta pro fundo ESCURO (`bg-slate-900`): mesma lógica
+// (linha maior mais contrastante que a menor, eixo mais contrastante que
+// as duas), só invertida pra continuar legível num fundo escuro -- tons
+// CLAROS de grid sobre fundo escuro, ao contrário dos tons escuros de
+// grid sobre fundo claro.
+const CORES_ESCURO = {
+  gridMenor: "#334155",
+  gridMaior: "#64748b",
+  eixo: "#94a3b8",
+};
 
 /**
  * GridLayer
@@ -47,8 +66,10 @@ export function GridLayer({
   stageWidth,
   stageHeight,
   gridSize,
+  tema = "claro",
 }: GridLayerProps) {
   const { scale, x: offX, y: offY } = viewport;
+  const cores = tema === "escuro" ? CORES_ESCURO : CORES_CLARO;
 
   const bounds = useMemo(() => {
     const left = -offX / scale;
@@ -89,7 +110,7 @@ export function GridLayer({
         <Line
           key={`v-${i}`}
           points={[v.x, bounds.top, v.x, bounds.bottom]}
-          stroke={v.maior ? COR_GRID_MAIOR : COR_GRID_MENOR}
+          stroke={v.maior ? cores.gridMaior : cores.gridMenor}
           strokeWidth={(v.maior ? 1 : 0.5) / scale}
         />
       ))}
@@ -97,14 +118,14 @@ export function GridLayer({
         <Line
           key={`h-${i}`}
           points={[bounds.left, h.y, bounds.right, h.y]}
-          stroke={h.maior ? COR_GRID_MAIOR : COR_GRID_MENOR}
+          stroke={h.maior ? cores.gridMaior : cores.gridMenor}
           strokeWidth={(h.maior ? 1 : 0.5) / scale}
         />
       ))}
 
       {/* Eixos na origem */}
-      <Line points={[bounds.left, 0, bounds.right, 0]} stroke={COR_EIXO} strokeWidth={1 / scale} />
-      <Line points={[0, bounds.top, 0, bounds.bottom]} stroke={COR_EIXO} strokeWidth={1 / scale} />
+      <Line points={[bounds.left, 0, bounds.right, 0]} stroke={cores.eixo} strokeWidth={1 / scale} />
+      <Line points={[0, bounds.top, 0, bounds.bottom]} stroke={cores.eixo} strokeWidth={1 / scale} />
     </Layer>
   );
 }
