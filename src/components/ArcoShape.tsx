@@ -12,6 +12,9 @@ interface ArcoShapeProps {
   onClick: (e: KonvaEventObject<MouseEvent | TouchEvent>) => void;
   /** Padrão de traço tracejado (herdado da camada, ver `dashDaCamada` em GeometryLayer.tsx) -- ausente = contínuo. */
   dash?: number[];
+  /** Iteração 41 -- hover vermelho do Apagar (ver `GeometryLayer.tsx`), repassado igual a `onClick`. */
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
 }
 
 /**
@@ -26,7 +29,7 @@ interface ArcoShapeProps {
  * o que queremos aqui -- só o traço do arco).
  * -----------------------------------------------------------------------
  */
-export function ArcoShape({ geo, stroke, strokeWidth, hitStrokeWidth, onClick, dash }: ArcoShapeProps) {
+export function ArcoShape({ geo, stroke, strokeWidth, hitStrokeWidth, onClick, dash, onMouseEnter, onMouseLeave }: ArcoShapeProps) {
   return (
     <Shape
       sceneFunc={(context, shape) => {
@@ -40,6 +43,8 @@ export function ArcoShape({ geo, stroke, strokeWidth, hitStrokeWidth, onClick, d
       dash={dash}
       onClick={onClick}
       onTap={onClick}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
     />
   );
 }

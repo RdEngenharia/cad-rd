@@ -104,7 +104,7 @@ async function main() {
     return {
       linhas: geo.filter((g) => g.tipo === "linha"),
       arcos: geo.filter((g) => g.tipo === "arco"),
-      filletAlvo1Id: window.__cadStoreTeste.getState().filletAlvo1Id,
+      filletAlvo1: window.__cadStoreTeste.getState().filletAlvo1,
     };
   });
   checar("FILLET com raio > 0 cria exatamente 1 arco novo", resultadoFillet.arcos.length === 1, resultadoFillet);
@@ -135,7 +135,7 @@ async function main() {
         (Math.abs(l2Depois.y2 - 1000) < 1 && Math.abs(l2Depois.y1 - 300) < 1)),
     l2Depois
   );
-  checar("filletAlvo1Id volta a null depois de aplicar (pronto pro próximo par de linhas)", resultadoFillet.filletAlvo1Id === null, resultadoFillet.filletAlvo1Id);
+  checar("filletAlvo1 volta a null depois de aplicar (pronto pro próximo par de linhas)", resultadoFillet.filletAlvo1 === null, resultadoFillet.filletAlvo1);
 
   await page.screenshot({ path: "/tmp/it38-fillet-arredondado.png" });
 

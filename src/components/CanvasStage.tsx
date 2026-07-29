@@ -172,7 +172,7 @@ export function CanvasStage() {
   const desfazer = useCadStore((s) => s.desfazer);
   const refazer = useCadStore((s) => s.refazer);
   const gripAlvo = useCadStore((s) => s.gripAlvo);
-  const filletAlvo1Id = useCadStore((s) => s.filletAlvo1Id);
+  const filletAlvo1 = useCadStore((s) => s.filletAlvo1);
   const calibrationMode = useCadStore((s) => s.calibrationMode);
   const aplicarStretch = useCadStore((s) => s.aplicarStretch);
   const adicionarPontoPolilinha = useCadStore((s) => s.adicionarPontoPolilinha);
@@ -459,7 +459,7 @@ export function CanvasStage() {
         !cotaP1 &&
         !trimQuebraA &&
         !offsetAlvoId &&
-        !filletAlvo1Id &&
+        !filletAlvo1 &&
         !calibrationMode &&
         !gripAlvo &&
         !blocoParaCarimbar &&
@@ -501,7 +501,7 @@ export function CanvasStage() {
     cotaP1,
     trimQuebraA,
     offsetAlvoId,
-    filletAlvo1Id,
+    filletAlvo1,
     calibrationMode,
     gripAlvo,
     blocoParaCarimbar,

@@ -467,7 +467,7 @@ export function CommandLine() {
     // vivo a partir do cursor (ver CanvasStage + lib/trim.ts).
     if (resultado.ferramenta === "aparar") {
       setFerramenta("aparar");
-      pushComando("APARAR: passe o mouse sobre um segmento e clique para removê-lo. [Esc para sair]");
+      pushComando("TRIM: passe o mouse sobre um segmento e clique para removê-lo. [Esc para sair]");
       return;
     }
 

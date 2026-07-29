@@ -10,7 +10,13 @@ const FERRAMENTAS: { id: Ferramenta; label: string; atalho: string }[] = [
   { id: "retangulo", label: "Retângulo", atalho: "REC" },
   { id: "poligono", label: "Polígono", atalho: "POL" },
   { id: "polilinha", label: "Polilinha", atalho: "PL" },
-  { id: "aparar", label: "Aparar", atalho: "TR" },
+  // Iteração 41 -- rótulo trocado de "Aparar" pra "Trim" (pedido do
+  // usuário: "altere o nome aparar para trim"), mesmo espírito da troca
+  // Concordância -> Fillet da Iteração 38 logo abaixo: só o texto do
+  // botão muda, o id interno (`id: "aparar"`) e os atalhos/sinônimos de
+  // linha de comando (TR/TRIM/APARAR, ver `lib/commands.ts`) continuam
+  // os mesmos.
+  { id: "aparar", label: "Trim", atalho: "TR" },
   { id: "deslocar", label: "Deslocar", atalho: "O" },
   // Iteração 38 -- rótulo trocado de "Concordância" pra "Fillet" (pedido
   // do usuário: "altere o nome concordancia para fillit igual o

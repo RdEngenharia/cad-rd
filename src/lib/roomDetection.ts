@@ -243,7 +243,24 @@ function floodFill(grade: Grade, bloqueado: Uint8Array): { comp: Int32Array; com
  * modo mais simples (sem posicionamento automático dos pontos ao longo do
  * perímetro, só área/perímetro/centro por contagem de células).
  */
-function tracarContorno(grade: Grade, comp: Int32Array, idAlvo: number, cellSet: Set<number>): Ponto[] | null {
+function areaAbsPontos(pontos: Ponto[]): number {
+  let s = 0;
+  for (let i = 0; i < pontos.length; i++) {
+    const a = pontos[i];
+    const b = pontos[(i + 1) % pontos.length];
+    s += a.x * b.y - b.x * a.y;
+  }
+  return Math.abs(s) / 2;
+}
+
+/**
+ * Traça TODOS os laços fechados do contorno de fronteira do componente
+ * (não só o maior) -- extraído de `tracarContorno` (que só queria o
+ * laço externo) porque a CONTAGEM de laços virou um sinal importante:
+ * ver `ehResiduoDeParedeDupla` logo abaixo. Devolve `null` no mesmo caso
+ * degenerado de sempre (grafo de arestas não fechou com segurança).
+ */
+function tracarTodosOsLacos(grade: Grade, comp: Int32Array, idAlvo: number, cellSet: Set<number>): Ponto[][] | null {
   const { cols } = grade;
   // chave de vértice = row*(cols+1)+col
   const vcols = cols + 1;
@@ -309,19 +326,56 @@ function tracarContorno(grade: Grade, comp: Int32Array, idAlvo: number, cellSet:
   }
 
   if (laços.length === 0) return null;
+  laços.sort((a, b) => areaAbsPontos(b) - areaAbsPontos(a));
+  return laços;
+}
 
+function tracarContorno(grade: Grade, comp: Int32Array, idAlvo: number, cellSet: Set<number>): Ponto[] | null {
+  const laços = tracarTodosOsLacos(grade, comp, idAlvo, cellSet);
+  if (!laços) return null;
   // Maior laço por área absoluta (shoelace) = contorno externo.
-  function areaAbs(pontos: Ponto[]): number {
-    let s = 0;
-    for (let i = 0; i < pontos.length; i++) {
-      const a = pontos[i];
-      const b = pontos[(i + 1) % pontos.length];
-      s += a.x * b.y - b.x * a.y;
-    }
-    return Math.abs(s) / 2;
-  }
-  laços.sort((a, b) => areaAbs(b) - areaAbs(a));
   return simplificarColineares(laços[0]);
+}
+
+/**
+ * Área mínima (m²) que um SEGUNDO laço precisa ter pra contar como
+ * "furo" de verdade, e não só ruído da rasterização (uns poucos pixels
+ * de escada entre 2 componentes que quase se tocam). Bem menor que o
+ * corte de 1m² usado pra reportar "sem_nome" -- mesmo um furo pequeno já
+ * prova que a forma é um ANEL (parede dupla), não uma sala.
+ */
+const AREA_MINIMA_LACO_INTERNO_M2 = 0.05;
+
+/**
+ * Detecta o padrão "resíduo de parede dupla": o vão ENTRE as duas linhas
+ * de uma parede desenhada em par (face externa + face interna, ex.: 14/15cm
+ * de tijolo -- ver comentário no cabeçalho do arquivo, "usamos as vezes
+ * comando offset") forma, ele mesmo, um componente FECHADO do flood-fill
+ * -- uma faixa/moldura que corre em volta do cômodo real, sem nenhum
+ * texto dentro (o nome do cômodo fica na linha interna, não na faixa).
+ * Se essa faixa for comprida o bastante (perímetro do cômodo x espessura
+ * da parede), sua área facilmente passa de 1m² e o sistema reportava um
+ * falso "sem_nome" -- bug real reportado pelo usuário (planta com sala/
+ * quarto/banheiro todos nomeados e fechados, mesmo assim erro de cômodo
+ * sem nome).
+ *
+ * Sinal usado: topologicamente, essa faixa é um ANEL (multiplamente
+ * conexo) -- tem um laço de fronteira EXTERNO e outro INTERNO (o "furo"
+ * = a área do cômodo lá dentro, cercada pela linha interna da parede).
+ * Uma sala de verdade, por mais irregular que seja (formato em L, U etc.),
+ * é sempre SIMPLESMENTE conexa -- só tem 1 laço de fronteira. Por isso,
+ * em vez de um limiar de "quão fina"/"quão oca" (arriscado -- corredores
+ * estreitos de verdade também são finos), usa a contagem de laços: 2 ou
+ * mais laços de área substancial (`AREA_MINIMA_LACO_INTERNO_M2`) é uma
+ * prova geométrica direta de anel, não uma heurística de tamanho.
+ */
+function ehResiduoDeParedeDupla(grade: Grade, comp: Int32Array, idAlvo: number, cellSet: Set<number>): boolean {
+  const laços = tracarTodosOsLacos(grade, comp, idAlvo, cellSet);
+  if (!laços || laços.length < 2) return false;
+  // laços[0] é sempre o maior (laço externo) -- basta o segundo maior já
+  // ser substancial pra confirmar que há um furo de verdade.
+  const areaSegundoLacoM2 = areaAbsPontos(laços[1]) / 1_000_000;
+  return areaSegundoLacoM2 >= AREA_MINIMA_LACO_INTERNO_M2;
 }
 
 /** Remove vértices colineares consecutivos (mesma direção) -- reduz a "escada" do traçado raster a um polígono mais limpo, sem mudar a forma. */
@@ -562,7 +616,18 @@ export function detectarComodos(
       // tamanho plausível de cômodo (>= 1m²), pra não gerar dezenas de
       // falsos avisos em casas com paredes bem detalhadas.
       if (areaM2Celulas >= 1) {
-        problemas.push({ tipo: "sem_nome", nomes: [], centroideAprox: centroCelulas, areaM2Aprox: areaM2Celulas });
+        // Antes de reportar, descarta o caso "resíduo de parede dupla"
+        // (ver `ehResiduoDeParedeDupla`) -- o vão entre a face externa e
+        // a face interna de uma parede desenhada em par forma, ele
+        // mesmo, um componente fechado sem nome, mas geometricamente é
+        // um ANEL (furo = a sala real lá dentro), nunca uma sala de
+        // verdade. Bug real reportado pelo usuário: planta com todos os
+        // cômodos nomeados e fechados (parede dupla, 14/15cm de tijolo)
+        // continuava dando erro de "cômodo sem nome".
+        const cellSet = new Set(componente.celulas.map((c) => c.row * grade.cols + c.col));
+        if (!ehResiduoDeParedeDupla(grade, comp, componente.id, cellSet)) {
+          problemas.push({ tipo: "sem_nome", nomes: [], centroideAprox: centroCelulas, areaM2Aprox: areaM2Celulas });
+        }
       }
       continue;
     }

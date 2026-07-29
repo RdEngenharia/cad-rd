@@ -166,6 +166,34 @@ export function arestaSobCursor(
 }
 
 /**
+ * Iteração 41 (pedido do usuário: "crie um botao que arredonde uma
+ * quina, assim se eu desenhar ruas com linhas eu consiga arredondar
+ * cantos, arredondar quinas de quadrados e retangulos, igual o autocad
+ * faz") -- acha, DENTRO de uma única geometria `g` já clicada, qual das
+ * suas arestas (ver `arestasDe`) está mais perto de `ponto` (mundo, mm).
+ * Usado pelo FILLET (Concordância) generalizado: `g` já foi resolvida
+ * pelo clique (ver `GeometryLayer.tsx#handleShapeClick`), só falta saber
+ * QUAL aresta dela (relevante pra retângulo/polígono/polilinha, que têm
+ * mais de uma) foi de fato clicada -- mesmo papel de `segmentoOffsetAlvo`
+ * (lib/offset.ts) pro comando OFFSET. Devolve `null` só para tipos sem
+ * nenhuma aresta reta (círculo, arco, texto, bloco, cota, viewport).
+ */
+export function indiceArestaMaisProxima(g: Geometria, ponto: Ponto): number | null {
+  const arestas = arestasDe(g);
+  if (arestas.length === 0) return null;
+  let melhorIndice = 0;
+  let melhorDist = Infinity;
+  arestas.forEach((a, i) => {
+    const { dist } = distanciaAoSegmento(ponto, a.p1, a.p2);
+    if (dist < melhorDist) {
+      melhorDist = dist;
+      melhorIndice = i;
+    }
+  });
+  return melhorIndice;
+}
+
+/**
  * Todas as arestas retas visíveis do projeto, como segmentos "crus" --
  * candidatas a servir de referência de corte pro TRIM. `excluirGeometriaId`
  * (normalmente a própria forma-alvo) tem TODAS as suas arestas excluídas,

@@ -53,9 +53,14 @@ const MAPA_COMANDOS: Record<string, { ferramenta: Ferramenta; ecoAcao: string }>
   HACH: { ferramenta: "hachurar", ecoAcao: "HACHURA" },
   HACHURA: { ferramenta: "hachurar", ecoAcao: "HACHURA" },
 
-  TR: { ferramenta: "aparar", ecoAcao: "APARAR" },
-  TRIM: { ferramenta: "aparar", ecoAcao: "APARAR" },
-  APARAR: { ferramenta: "aparar", ecoAcao: "APARAR" },
+  // Iteração 41 (pedido do usuário: "altere o nome aparar para trim") --
+  // o eco na linha de comando passa a mostrar "TRIM" (nome do botão desde
+  // esta iteração, ver `ToolRuler.tsx`); o id interno da ferramenta
+  // continua "aparar" (não vale a pena renomear em todo o store/testes só
+  // pelo rótulo visível) e os 3 sinônimos digitáveis continuam aceitos.
+  TR: { ferramenta: "aparar", ecoAcao: "TRIM" },
+  TRIM: { ferramenta: "aparar", ecoAcao: "TRIM" },
+  APARAR: { ferramenta: "aparar", ecoAcao: "TRIM" },
 
   O: { ferramenta: "deslocar", ecoAcao: "OFFSET" },
   OFFSET: { ferramenta: "deslocar", ecoAcao: "OFFSET" },

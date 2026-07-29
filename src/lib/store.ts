@@ -43,7 +43,8 @@ import type {
   XRef,
 } from "./types";
 import { camadasIniciais, carimboVazio, dimensoesCarimbo, dimensoesFolhaOrientada, FORMATOS_FOLHA, MARGENS_ABNT } from "./types";
-import { construirGeometriaDiagramaFv, type DadosDiagramaFv, type RetanguloMm } from "./diagramaFv";
+import { construirGeometriaDiagramaFv, ORIGEM_GERADOR_DIAGRAMA_FV, type DadosDiagramaFv, type RetanguloMm } from "./diagramaFv";
+import { origemLivreParaGerador } from "./layoutAutomatico";
 import {
   gerarLeiauteSistemaSolo,
   ORIGEM_GERADOR_SISTEMA_SOLO,
@@ -60,7 +61,7 @@ import {
 } from "./cargasEletricas";
 import type { Viewport } from "./snap";
 import type { TipoOsnap } from "./osnap";
-import { arestasDe, segmentosDeCorte, todasArestasVisiveis, type SegmentoCorte } from "./trim";
+import { arestasDe, indiceArestaMaisProxima, segmentosDeCorte, todasArestasVisiveis, type SegmentoCorte } from "./trim";
 import {
   distanciaAoSegmento,
   intersecaoRetas,
@@ -282,7 +283,16 @@ interface CadState {
    * novo raio (depois de "R").
    */
   filletRaio: number;
-  filletAlvo1Id: string | null;
+  /**
+   * Iteração 41 -- generalizado de `string | null` (assumia sempre uma
+   * geometria "linha" inteira) pra `{ geometriaId, indiceAresta } | null`,
+   * mesmo padrão de `trimPreview`/`trimQuebraA` (ver `lib/trim.ts`):
+   * agora aceita clicar numa ARESTA de retângulo/polígono/polilinha, não
+   * só numa linha solta -- pedido do usuário: "crie um botao que
+   * arredonde uma quina [...] arredondar quinas de quadrados e
+   * retangulos, igual o autocad faz".
+   */
+  filletAlvo1: { geometriaId: string; indiceAresta: number } | null;
   filletAguardandoRaio: boolean;
 
   /**
@@ -505,8 +515,9 @@ interface CadState {
   // FILLET (Concordância) ---------------------------------------------------
   setFilletRaio: (n: number) => void;
   setFilletAguardandoRaio: (b: boolean) => void;
-  selecionarAlvo1Fillet: (id: string) => void;
-  aplicarFillet: (id2: string) => { ok: boolean; erro?: string };
+  /** `ponto` (clique original, mundo) decide QUAL aresta usar quando `id` é um retângulo/polígono/polilinha (mesmo papel de `selecionarAlvoOffset`). */
+  selecionarAlvo1Fillet: (id: string, ponto: Ponto) => void;
+  aplicarFillet: (id2: string, ponto2: Ponto) => { ok: boolean; erro?: string };
 
   // Seleção por caixa (Window/Crossing Select) --------------------------------
   setSelecaoBox: (b: CadState["selecaoBox"]) => void;
@@ -1223,7 +1234,7 @@ export const useCadStore = create<CadState>((set, get) => {
   offsetAlvoSegmento: null,
   offsetHover: null,
   filletRaio: 0,
-  filletAlvo1Id: null,
+  filletAlvo1: null,
   filletAguardandoRaio: false,
   escalaPreview: null,
 
@@ -1282,7 +1293,7 @@ export const useCadStore = create<CadState>((set, get) => {
       offsetAlvoId: null,
       offsetAlvoSegmento: null,
       offsetHover: null,
-      filletAlvo1Id: null,
+      filletAlvo1: null,
       filletAguardandoRaio: false,
       selecaoBox: null,
       cotaP1: null,
@@ -1415,7 +1426,7 @@ export const useCadStore = create<CadState>((set, get) => {
       offsetAlvoId: null,
       offsetAlvoSegmento: null,
       offsetHover: null,
-      filletAlvo1Id: null,
+      filletAlvo1: null,
       filletAguardandoRaio: false,
       calibrationMode: false,
       calibXrefId: null,
@@ -2036,39 +2047,71 @@ export const useCadStore = create<CadState>((set, get) => {
 
   setFilletAguardandoRaio: (b) => set({ filletAguardandoRaio: b }),
 
-  selecionarAlvo1Fillet: (id) =>
+  selecionarAlvo1Fillet: (id, ponto) =>
     set((state) => {
       const g = state.projeto.geometria.find((x) => x.id === id);
-      if (!g || g.tipo !== "linha") return state;
-      return { filletAlvo1Id: id };
+      if (!g) return state;
+      const indiceAresta = indiceArestaMaisProxima(g, ponto);
+      if (indiceAresta === null) return state;
+      return { filletAlvo1: { geometriaId: id, indiceAresta } };
     }),
 
-  // FILLET (concordância): acha o vértice teórico (interseção das duas
-  // RETAS INFINITAS que contêm as linhas selecionadas), mantém em cada
-  // linha a extremidade mais distante desse vértice, e:
-  //   - raio = 0: estica/corta as duas linhas pra se encontrarem
+  // FILLET (concordância) -- Iteração 41: generalizado do par "2 linhas
+  // soltas" de sempre pra aceitar QUALQUER par de arestas retas (mesmo
+  // padrão de `lib/trim.ts#arestasDe` usado pelo TRIM) -- pedido do
+  // usuário: "crie um botao que arredonde uma quina, assim se eu
+  // desenhar ruas com linhas eu consiga arredondar cantos, arredondar
+  // quinas de quadrados e retangulos, igual o autocad faz". Isso inclui
+  // arredondar as DUAS arestas de uma mesma forma fechada (o caso comum
+  // de "arredondar o canto deste retângulo").
+  //
+  // Acha o vértice teórico (interseção das duas RETAS INFINITAS que
+  // contêm as arestas selecionadas), mantém de cada aresta a extremidade
+  // mais distante desse vértice, e:
+  //   - raio = 0: estica/corta as duas arestas pra se encontrarem
   //     exatamente no vértice (um "V" perfeito, como o FILLET R=0 do
   //     AutoCAD faz na prática de um TRIM/EXTEND combinado);
   //   - raio > 0: calcula os pontos de tangência (distância
-  //     `raio / tan(theta/2)` do vértice ao longo de cada linha, onde
+  //     `raio / tan(theta/2)` do vértice ao longo de cada aresta, onde
   //     theta é o ângulo entre elas) e o centro do arco (na bissetriz, a
-  //     `raio / sin(theta/2)` do vértice), corta as duas linhas nos
+  //     `raio / sin(theta/2)` do vértice), corta as duas arestas nos
   //     pontos de tangência e insere um novo elemento "arco" ligando-as.
-  aplicarFillet: (id2) => {
-    const { filletAlvo1Id, filletRaio, projeto } = get();
-    if (!filletAlvo1Id) return { ok: false, erro: "Selecione a primeira linha antes." };
-    if (id2 === filletAlvo1Id) return { ok: false, erro: "Selecione uma segunda linha diferente da primeira." };
+  //
+  // Quando uma aresta-alvo pertence a uma forma FECHADA (retângulo/
+  // polígono/polilinha), a forma é "explodida" em linhas soltas (mesmo
+  // padrão de `aplicarTrim`) -- as arestas NÃO tocadas viram linhas
+  // idênticas ao original, e só a(s) aresta(s) envolvida(s) são
+  // substituídas pelo pedaço cortado/pelo ponto de tangência. Quando as
+  // DUAS arestas pertencem à MESMA forma (arredondar o próprio canto de
+  // um retângulo), essa forma é explodida uma ÚNICA vez, com as duas
+  // arestas substituídas de uma vez só.
+  aplicarFillet: (id2, ponto2) => {
+    const { filletAlvo1, filletRaio, projeto } = get();
+    if (!filletAlvo1) return { ok: false, erro: "Selecione a primeira linha/aresta antes." };
 
-    const l1 = projeto.geometria.find((g) => g.id === filletAlvo1Id);
-    const l2 = projeto.geometria.find((g) => g.id === id2);
-    if (!l1 || l1.tipo !== "linha" || !l2 || l2.tipo !== "linha") {
-      return { ok: false, erro: "As duas linhas selecionadas precisam ser linhas retas." };
+    const g1 = projeto.geometria.find((g) => g.id === filletAlvo1.geometriaId);
+    if (!g1) return { ok: false, erro: "A 1ª linha/aresta selecionada não existe mais." };
+    const arestas1 = arestasDe(g1);
+    const aresta1 = arestas1[filletAlvo1.indiceAresta];
+    if (!aresta1) return { ok: false, erro: "A 1ª aresta selecionada não existe mais." };
+
+    const g2 = projeto.geometria.find((g) => g.id === id2);
+    if (!g2) return { ok: false, erro: "A 2ª linha/aresta não existe mais." };
+    const indiceAresta2 = indiceArestaMaisProxima(g2, ponto2);
+    if (indiceAresta2 === null) {
+      return { ok: false, erro: "Selecione uma linha/aresta reta como 2º elemento." };
     }
+    if (g1.id === g2.id && indiceAresta2 === filletAlvo1.indiceAresta) {
+      return { ok: false, erro: "Selecione uma aresta diferente da primeira." };
+    }
+    const arestas2 = arestasDe(g2);
+    const aresta2 = arestas2[indiceAresta2];
+    if (!aresta2) return { ok: false, erro: "A 2ª aresta selecionada não existe mais." };
 
-    const p1a = { x: l1.x1, y: l1.y1 };
-    const p1b = { x: l1.x2, y: l1.y2 };
-    const p2a = { x: l2.x1, y: l2.y1 };
-    const p2b = { x: l2.x2, y: l2.y2 };
+    const p1a = aresta1.p1;
+    const p1b = aresta1.p2;
+    const p2a = aresta2.p1;
+    const p2b = aresta2.p2;
     const v = intersecaoRetas(p1a, p1b, p2a, p2b);
     if (!v) return { ok: false, erro: "As duas linhas são paralelas -- não há como concordá-las." };
 
@@ -2076,19 +2119,52 @@ export const useCadStore = create<CadState>((set, get) => {
     const longe1 = distV(p1a) >= distV(p1b) ? p1a : p1b;
     const longe2 = distV(p2a) >= distV(p2b) ? p2a : p2b;
 
+    /**
+     * "Explode" (se necessário) a forma `alvo`, substituindo as arestas
+     * indicadas em `substituicoes` (índice -> novo par de pontos) pelos
+     * pontos cortados/tangentes -- mantém as demais arestas intactas
+     * como linhas soltas. Uma "linha" solta nunca precisa de explosão
+     * (só tem 1 aresta, índice 0): é só reescrita no lugar, preservando
+     * o próprio id (mesmo comportamento de sempre, sem gerar um id novo
+     * à toa).
+     */
+    const explodirSubstituindoArestas = (alvo: Geometria, substituicoes: Map<number, { p1: Ponto; p2: Ponto }>): Geometria[] => {
+      if (alvo.tipo === "linha") {
+        const sub = substituicoes.get(0);
+        if (!sub) return [alvo];
+        return [{ ...alvo, x1: sub.p1.x, y1: sub.p1.y, x2: sub.p2.x, y2: sub.p2.y } as Geometria];
+      }
+      return arestasDe(alvo).map((a, i) => {
+        const sub = substituicoes.get(i);
+        const p1 = sub ? sub.p1 : a.p1;
+        const p2 = sub ? sub.p2 : a.p2;
+        return { id: uuidv4(), tipo: "linha", camada: alvo.camada, x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y } as Geometria;
+      });
+    };
+
     if (filletRaio <= 0) {
       snapshot();
-      set((state) => ({
-        projeto: {
-          ...state.projeto,
-          geometria: state.projeto.geometria.map((g) => {
-            if (g.id === l1.id) return { ...g, x1: longe1.x, y1: longe1.y, x2: v.x, y2: v.y } as Geometria;
-            if (g.id === l2.id) return { ...g, x1: longe2.x, y1: longe2.y, x2: v.x, y2: v.y } as Geometria;
-            return g;
-          }),
-        },
-        filletAlvo1Id: null,
-      }));
+      set((state) => {
+        const sub1 = new Map([[filletAlvo1.indiceAresta, { p1: longe1, p2: v }]]);
+        if (g1.id === g2.id) {
+          sub1.set(indiceAresta2, { p1: longe2, p2: v });
+          const explodido = explodirSubstituindoArestas(g1, sub1);
+          const semAlvo = state.projeto.geometria.filter((g) => g.id !== g1.id);
+          return {
+            projeto: { ...state.projeto, geometria: [...semAlvo, ...explodido] },
+            selecionadoIds: state.selecionadoIds.filter((sid) => sid !== g1.id),
+            filletAlvo1: null,
+          };
+        }
+        const explodido1 = explodirSubstituindoArestas(g1, sub1);
+        const explodido2 = explodirSubstituindoArestas(g2, new Map([[indiceAresta2, { p1: longe2, p2: v }]]));
+        const semAlvos = state.projeto.geometria.filter((g) => g.id !== g1.id && g.id !== g2.id);
+        return {
+          projeto: { ...state.projeto, geometria: [...semAlvos, ...explodido1, ...explodido2] },
+          selecionadoIds: state.selecionadoIds.filter((sid) => sid !== g1.id && sid !== g2.id),
+          filletAlvo1: null,
+        };
+      });
       return { ok: true };
     }
 
@@ -2125,30 +2201,39 @@ export const useCadStore = create<CadState>((set, get) => {
       anguloFinal = a2n + (Math.PI * 2 - deltaDireto);
     }
 
+    const arco: Geometria = {
+      id: uuidv4(),
+      tipo: "arco",
+      camada: g1.camada,
+      x: centro.x,
+      y: centro.y,
+      raio: filletRaio,
+      anguloInicial: (anguloInicial * 180) / Math.PI,
+      anguloFinal: (anguloFinal * 180) / Math.PI,
+    } as Geometria;
+
     snapshot();
-    set((state) => ({
-      projeto: {
-        ...state.projeto,
-        geometria: [
-          ...state.projeto.geometria.map((g) => {
-            if (g.id === l1.id) return { ...g, x1: longe1.x, y1: longe1.y, x2: tang1.x, y2: tang1.y } as Geometria;
-            if (g.id === l2.id) return { ...g, x1: longe2.x, y1: longe2.y, x2: tang2.x, y2: tang2.y } as Geometria;
-            return g;
-          }),
-          {
-            id: uuidv4(),
-            tipo: "arco",
-            camada: l1.camada,
-            x: centro.x,
-            y: centro.y,
-            raio: filletRaio,
-            anguloInicial: (anguloInicial * 180) / Math.PI,
-            anguloFinal: (anguloFinal * 180) / Math.PI,
-          } as Geometria,
-        ],
-      },
-      filletAlvo1Id: null,
-    }));
+    set((state) => {
+      const sub1 = new Map([[filletAlvo1.indiceAresta, { p1: longe1, p2: tang1 }]]);
+      if (g1.id === g2.id) {
+        sub1.set(indiceAresta2, { p1: longe2, p2: tang2 });
+        const explodido = explodirSubstituindoArestas(g1, sub1);
+        const semAlvo = state.projeto.geometria.filter((g) => g.id !== g1.id);
+        return {
+          projeto: { ...state.projeto, geometria: [...semAlvo, ...explodido, arco] },
+          selecionadoIds: state.selecionadoIds.filter((sid) => sid !== g1.id),
+          filletAlvo1: null,
+        };
+      }
+      const explodido1 = explodirSubstituindoArestas(g1, sub1);
+      const explodido2 = explodirSubstituindoArestas(g2, new Map([[indiceAresta2, { p1: longe2, p2: tang2 }]]));
+      const semAlvos = state.projeto.geometria.filter((g) => g.id !== g1.id && g.id !== g2.id);
+      return {
+        projeto: { ...state.projeto, geometria: [...semAlvos, ...explodido1, ...explodido2, arco] },
+        selecionadoIds: state.selecionadoIds.filter((sid) => sid !== g1.id && sid !== g2.id),
+        filletAlvo1: null,
+      };
+    });
     return { ok: true };
   },
 
@@ -2634,20 +2719,50 @@ export const useCadStore = create<CadState>((set, get) => {
     }
 
     const folha = FORMATOS_FOLHA[get().activeSheet];
-    const origemX = -folha.largura / 2 + MARGENS_ABNT.esquerda + 8;
-    const origemY = -folha.altura / 2 + MARGENS_ABNT.superior + 20;
-    const { geometria: novos, boxPadraoEntradaRepresentativo } = construirGeometriaDiagramaFv(
-      dados,
-      origemX,
-      origemY,
-      camada
-    );
+    // Iteração 41 (pedido do usuário: "quando faço um lançamento
+    // automatico de diagramas ele sobrepoe o desenho existente [...]
+    // garanta que nunca um lançamento sobreponha um desenho ou outros
+    // lançamentos") -- o canto ABNT de sempre continua sendo o padrão
+    // PREFERIDO (projeto vazio/só com uma geração anterior DESTE MESMO
+    // gerador, que está prestes a ser substituída), mas `origemLivreParaGerador`
+    // desloca pra direita de QUALQUER OUTRA coisa já no projeto -- o
+    // desenho manual do usuário (ex.: a planta baixa da casa) ou a saída
+    // de outro gerador automático (Cargas/Sistema no Solo) -- antes este
+    // ponto era sempre fixo, então rodar o gerador de novo (ou junto com
+    // outro) sempre colidia tudo no mesmo canto.
+    const origemPadrao = { x: -folha.largura / 2 + MARGENS_ABNT.esquerda + 8, y: -folha.altura / 2 + MARGENS_ABNT.superior + 20 };
+    // Constrói uma 1ª vez na origem padrão só pra medir o tamanho real
+    // que ESTE diagrama específico vai ocupar (varia com o nº de
+    // inversores/MPPTs) -- só assim dá pra checar sobreposição de
+    // verdade (2D) contra o resto do projeto. Se não houver conflito,
+    // esse resultado já é o final (nenhum recálculo); se houver, refaz
+    // uma 2ª vez já na origem deslocada.
+    const previaNaOrigemPadrao = construirGeometriaDiagramaFv(dados, origemPadrao.x, origemPadrao.y, camada);
+    const bboxPrevia = bboxCombinada(previaNaOrigemPadrao.geometria as Geometria[]);
+    const candidato = bboxPrevia
+      ? { x: origemPadrao.x, y: origemPadrao.y, largura: bboxPrevia.maxX - bboxPrevia.minX, altura: bboxPrevia.maxY - bboxPrevia.minY }
+      : { x: origemPadrao.x, y: origemPadrao.y, largura: 0, altura: 0 };
+    const origemFinal = origemLivreParaGerador(get().projeto.geometria, ORIGEM_GERADOR_DIAGRAMA_FV, candidato);
+    const { geometria: novos, boxPadraoEntradaRepresentativo } =
+      origemFinal.x === origemPadrao.x && origemFinal.y === origemPadrao.y
+        ? previaNaOrigemPadrao
+        : construirGeometriaDiagramaFv(dados, origemFinal.x, origemFinal.y, camada);
 
     snapshot();
     set((state) => {
+      // Iteração 41 -- este gerador, ao contrário dos outros 3, nunca
+      // removia sua PRÓPRIA geração anterior antes de inserir a nova
+      // (faltava a marca `origemGeradorId`, ver `lib/diagramaFv.ts`) --
+      // rodar "Gerar diagrama fotovoltaico" de novo no mesmo projeto
+      // literalmente empilhava uma cópia idêntica por cima da anterior.
+      // Mesmo padrão de `gerarSistemaSolo`/`gerarDimensionamentoCargas`
+      // logo abaixo agora.
+      const geometriaSemGeracaoAnterior = state.projeto.geometria.filter(
+        (g) => g.origemGeradorId !== ORIGEM_GERADOR_DIAGRAMA_FV
+      );
       const comIds = novos.map((n): Geometria => ({ ...n, id: uuidv4() }));
       return {
-        projeto: { ...state.projeto, geometria: [...state.projeto.geometria, ...comIds] },
+        projeto: { ...state.projeto, geometria: [...geometriaSemGeracaoAnterior, ...comIds] },
         // Iteração 29h: pede pro CanvasStage centralizar/enquadrar o
         // diagrama recém-gerado, que podia nascer fora da área visível
         // atual (zoom/pan não tinham relação nenhuma com onde o diagrama
@@ -2696,7 +2811,26 @@ export const useCadStore = create<CadState>((set, get) => {
       const geometriaSemGeracaoAnterior = state.projeto.geometria.filter(
         (g) => g.origemGeradorId !== ORIGEM_GERADOR_SISTEMA_SOLO
       );
-      const comIds = novos.map((n): Geometria => ({ ...n, id: uuidv4() }));
+      let comIds = novos.map((n): Geometria => ({ ...n, id: uuidv4() }));
+      // Iteração 41 (mesmo pedido/fix de `gerarDiagramaFotovoltaico`
+      // acima): este gerador não recebe um ponto de origem (sempre
+      // calcula o próprio layout a partir do terreno informado, ancorado
+      // perto do (0,0) do mundo -- ver `sistemaSolo.ts#calcularEixosTerreno`),
+      // então em vez de mudar essa arquitetura, TRANSLADA o resultado
+      // pronto pra longe de tudo que já existe (desenho manual + outro
+      // gerador automático), só quando precisar.
+      const bboxNatural = bboxCombinada(comIds);
+      if (bboxNatural) {
+        const origemAlvo = origemLivreParaGerador(state.projeto.geometria, ORIGEM_GERADOR_SISTEMA_SOLO, {
+          x: bboxNatural.minX,
+          y: bboxNatural.minY,
+          largura: bboxNatural.maxX - bboxNatural.minX,
+          altura: bboxNatural.maxY - bboxNatural.minY,
+        });
+        const dx = origemAlvo.x - bboxNatural.minX;
+        const dy = origemAlvo.y - bboxNatural.minY;
+        if (dx !== 0 || dy !== 0) comIds = comIds.map((g) => transladar(g, dx, dy));
+      }
       return {
         projeto: { ...state.projeto, geometria: [...geometriaSemGeracaoAnterior, ...comIds] },
         // Iteração 29h: mesmo motivo do diagrama fotovoltaico acima --
@@ -2724,15 +2858,43 @@ export const useCadStore = create<CadState>((set, get) => {
     // ABNT) -- MESMA convenção de `gerarDiagramaFotovoltaico` logo abaixo.
     // Usar (0,0) aqui seria um bug (mundo é centrado na folha, não no
     // canto) -- ver comentário completo em `cargasEletricas.ts`.
-    const origemX = -folha.largura / 2 + MARGENS_ABNT.esquerda + 8;
-    const origemY = -folha.altura / 2 + MARGENS_ABNT.superior + 20;
+    const origemPadraoCargas = { x: -folha.largura / 2 + MARGENS_ABNT.esquerda + 8, y: -folha.altura / 2 + MARGENS_ABNT.superior + 20 };
     // Espaço horizontal realmente livre à esquerda do carimbo (canto
     // inferior direito da folha) -- usado por `cargasEletricas.ts` pra
     // quebrar o diagrama em várias fileiras de disjuntores em vez de
     // crescer pra dentro do carimbo quando há muitos circuitos.
     const areaCarimbo = dimensoesCarimbo(get().activeSheet, get().projeto.carimbo?.escalaCarimbo ?? 1);
-    const larguraMaximaCargas = Math.max(300, folha.largura - MARGENS_ABNT.esquerda - MARGENS_ABNT.direita - areaCarimbo.largura - 20);
-    const { geometria: novos, resumo } = construirGeometriaCargasEletricas(dados, origemX, origemY, larguraMaximaCargas);
+    const larguraMaximaCargasPadrao = Math.max(
+      300,
+      folha.largura - MARGENS_ABNT.esquerda - MARGENS_ABNT.direita - areaCarimbo.largura - 20
+    );
+    // Iteração 41 (mesmo pedido/fix de `gerarDiagramaFotovoltaico` acima):
+    // constrói 1ª vez na origem padrão só pra medir o tamanho real (varia
+    // com o nº de circuitos/fileiras), checa sobreposição de verdade (2D)
+    // contra o resto do projeto, e só refaz numa origem deslocada se
+    // precisar -- desloca pra direita de tudo que já existe (desenho
+    // manual + outro gerador automático), em vez de sempre nascer no
+    // mesmo canto fixo.
+    const previaCargas = construirGeometriaCargasEletricas(dados, origemPadraoCargas.x, origemPadraoCargas.y, larguraMaximaCargasPadrao);
+    const bboxPreviaCargas = bboxCombinada(previaCargas.geometria as Geometria[]);
+    const candidatoCargas = bboxPreviaCargas
+      ? {
+          x: origemPadraoCargas.x,
+          y: origemPadraoCargas.y,
+          largura: bboxPreviaCargas.maxX - bboxPreviaCargas.minX,
+          altura: bboxPreviaCargas.maxY - bboxPreviaCargas.minY,
+        }
+      : { x: origemPadraoCargas.x, y: origemPadraoCargas.y, largura: 0, altura: 0 };
+    const origemFinalCargas = origemLivreParaGerador(get().projeto.geometria, ORIGEM_GERADOR_CARGAS, candidatoCargas);
+    const deslocamentoXCargas = origemFinalCargas.x - origemPadraoCargas.x;
+    // Se a origem foi deslocada pra direita, o espaço disponível até o
+    // carimbo encolhe na mesma medida -- sem esse ajuste, um
+    // deslocamento grande deixaria a tabela invadir o carimbo.
+    const larguraMaximaCargas = Math.max(300, larguraMaximaCargasPadrao - deslocamentoXCargas);
+    const { geometria: novos, resumo } =
+      deslocamentoXCargas === 0 && origemFinalCargas.y === origemPadraoCargas.y
+        ? previaCargas
+        : construirGeometriaCargasEletricas(dados, origemFinalCargas.x, origemFinalCargas.y, larguraMaximaCargas);
 
     get().criarCamada("QDC_DIAGRAMA", "#0f172a");
     get().criarCamada("QDC_TABELA", "#334155");

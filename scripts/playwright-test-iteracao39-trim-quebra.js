@@ -58,7 +58,7 @@ async function main() {
   // PARTE 1: TRIM normal falha (baseline -- confirma o bug reportado)
   // =========================================================================
   console.log("\n=== Parte 1: baseline -- TRIM normal não consegue cortar uma parede sem cruzamento ===");
-  await page.getByRole("button", { name: "Aparar", exact: true }).click();
+  await page.getByRole("button", { name: "Trim", exact: true }).click();
   await page.waitForTimeout(100);
   let p = pxDoMundo(3000, 0); // meio da parede
   await page.mouse.move(p.sx, p.sy);

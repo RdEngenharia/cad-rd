@@ -31,6 +31,10 @@ interface ViewportShapeProps {
   /** `true` quando este é o viewport em "Model Ativo" (ver `viewportAtivoId` no store). */
   ativo: boolean;
   onClick: (e: KonvaEventObject<MouseEvent | TouchEvent>) => void;
+  /** Iteração 41 -- hover vermelho do Apagar (ver `GeometryLayer.tsx#COR_APAGAR_HOVER`). */
+  destacarApagar?: boolean;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
 }
 
 const NOOP = () => {};
@@ -191,7 +195,7 @@ export function desenharSomenteLeitura(g: Geometria, camada: Camada, escala: num
  * ou não no PDF exportado, ver `pdfExport.ts`).
  * -----------------------------------------------------------------------
  */
-export function ViewportShape({ geo, geometriaCompleta, camadas, xrefs = [], scale, selecionado, ativo, onClick }: ViewportShapeProps) {
+export function ViewportShape({ geo, geometriaCompleta, camadas, xrefs = [], scale, selecionado, ativo, onClick, destacarApagar, onMouseEnter, onMouseLeave }: ViewportShapeProps) {
   const modelScale = geo.modelScale || 1;
   // Escala EFETIVA do conteúdo interno: a composição do zoom do Stage
   // principal com a escala PRÓPRIA do Group da câmera local
@@ -229,13 +233,15 @@ export function ViewportShape({ geo, geometriaCompleta, camadas, xrefs = [], sca
         y={geo.y}
         width={geo.largura}
         height={geo.altura}
-        stroke={selecionado ? "#2563eb" : ativo ? "#7c3aed" : "#64748b"}
-        strokeWidth={(ativo ? 2.2 : selecionado ? 1.6 : 1) / scale}
+        stroke={destacarApagar ? "#dc2626" : selecionado ? "#2563eb" : ativo ? "#7c3aed" : "#64748b"}
+        strokeWidth={(destacarApagar ? 2.4 : ativo ? 2.2 : selecionado ? 1.6 : 1) / scale}
         dash={ativo ? undefined : [6 / scale, 4 / scale]}
         hitStrokeWidth={Math.max(10 / scale, 6)}
         fillEnabled={false}
         onClick={onClick}
         onTap={onClick}
+        onMouseEnter={onMouseEnter}
+        onMouseLeave={onMouseLeave}
       />
       <Text
         x={geo.x + 2 / scale}

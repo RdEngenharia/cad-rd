@@ -21,6 +21,15 @@ interface BlocoShapeProps {
    * fixa "cravada" no SVG de `lib/blocks.ts`, ignorando a camada.
    */
   camada?: Camada;
+  /**
+   * Iteração 41 -- hover vermelho da ferramenta Apagar (ver
+   * `GeometryLayer.tsx#COR_APAGAR_HOVER`): quando `true`, desenha a
+   * mesma moldura tracejada da seleção só que em vermelho, avisando que
+   * este bloco INTEIRO será removido no próximo clique.
+   */
+  destacarApagar?: boolean;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
 }
 
 /**
@@ -35,7 +44,7 @@ interface BlocoShapeProps {
 /** Espessura de traço (em unidades do viewBox 0-100) usada como referência na maioria dos SVGs de `lib/blocks.ts` -- ver `reescalarEspessuras`. */
 const ESPESSURA_BASE_VIEWBOX = 4;
 
-export function BlocoShape({ geo, scale, selecionado, onClick, camada }: BlocoShapeProps) {
+export function BlocoShape({ geo, scale, selecionado, onClick, camada, destacarApagar, onMouseEnter, onMouseLeave }: BlocoShapeProps) {
   const def = getBlockDef(geo.nome);
 
   // Fator de reescala do traço do bloco (Iteração 12f): calibrado pra
@@ -63,15 +72,15 @@ export function BlocoShape({ geo, scale, selecionado, onClick, camada }: BlocoSh
 
   return (
     <>
-      {selecionado && (
+      {(selecionado || destacarApagar) && (
         <Rect
           x={geo.x - largura / 2 - 2 / scale}
           y={geo.y - altura / 2 - 2 / scale}
           width={largura + 4 / scale}
           height={altura + 4 / scale}
-          stroke="#2563eb"
+          stroke={destacarApagar ? "#dc2626" : "#2563eb"}
           dash={[4 / scale, 3 / scale]}
-          strokeWidth={1 / scale}
+          strokeWidth={(destacarApagar ? 1.6 : 1) / scale}
           listening={false}
         />
       )}
@@ -87,6 +96,8 @@ export function BlocoShape({ geo, scale, selecionado, onClick, camada }: BlocoSh
           rotation={geo.rotacao ?? 0}
           onClick={onClick}
           onTap={onClick}
+          onMouseEnter={onMouseEnter}
+          onMouseLeave={onMouseLeave}
         />
       )}
     </>

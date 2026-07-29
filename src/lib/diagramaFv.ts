@@ -96,6 +96,17 @@
 import type { NovaGeometria } from "./types";
 import { getBlockDef } from "./blocks";
 
+/**
+ * Iteração 41 -- ver `layoutAutomatico.ts` (cabeçalho) e `store.ts#gerarDiagramaFotovoltaico`:
+ * marca toda geometria produzida por este gerador, pro store poder (a)
+ * substituir uma geração anterior dele mesmo em vez de acumular cópias, e
+ * (b) nunca posicionar uma geração nova por cima da saída de OUTRO
+ * gerador automático (mesmo padrão já usado por `ORIGEM_GERADOR_SISTEMA_SOLO`/
+ * `ORIGEM_GERADOR_CARGAS`/`ORIGEM_GERADOR_LANCAMENTO_ELETRICO` -- este
+ * gerador, inexplicavelmente, era o único dos 4 sem essa marca).
+ */
+export const ORIGEM_GERADOR_DIAGRAMA_FV = "diagramaFv";
+
 export type TipoRedeFv = "monofasico" | "bifasico" | "trifasico";
 
 /** Retângulo em mm de mundo -- usado para devolver a área reservada ao quadro "Padrão de Entrada Representativo" (ver `boxPadraoEntradaRepresentativo` no retorno de `construirGeometriaDiagramaFv`). */
@@ -1003,5 +1014,6 @@ export function construirGeometriaDiagramaFv(
     );
   }
 
-  return { geometria: g, boxPadraoEntradaRepresentativo };
+  const geometriaMarcada = g.map((el) => ({ ...el, origemGeradorId: ORIGEM_GERADOR_DIAGRAMA_FV }));
+  return { geometria: geometriaMarcada, boxPadraoEntradaRepresentativo };
 }

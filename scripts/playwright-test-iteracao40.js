@@ -89,7 +89,7 @@ async function main() {
   });
   await page.waitForTimeout(150);
 
-  await page.getByRole("button", { name: "Aparar", exact: true }).click();
+  await page.getByRole("button", { name: "Trim", exact: true }).click();
   await page.waitForTimeout(100);
 
   // Passa o mouse sobre o TRECHO DO MEIO da aresta de baixo (entre as 2
@@ -195,7 +195,7 @@ async function main() {
   // coisas: o botão perde o foco sozinho depois do clique
   // (`ToolRuler.tsx`), e o guard de Espaço passou a testar por ESTADO
   // ("nada em andamento"), não mais pela ferramenta atual.
-  await page.getByRole("button", { name: "Aparar", exact: true }).click();
+  await page.getByRole("button", { name: "Trim", exact: true }).click();
   await page.waitForTimeout(100);
   const ferramentaAtualAntesDoEspaco = await page.evaluate(() => window.__cadStoreTeste.getState().ferramenta);
   checar("ferramenta atual é \"aparar\" (não volta sozinha pra \"selecionar\")", ferramentaAtualAntesDoEspaco === "aparar", ferramentaAtualAntesDoEspaco);

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Layer, Line, Circle, Rect, Text, RegularPolygon, Shape, Group } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import { useCadStore, escalarGeometria } from "@/lib/store";
@@ -70,6 +71,23 @@ const COR_OFFSET_HOVER = "#f59e0b";
 // que SERIA removido num cruzamento de verdade), e o mesmo tom (mais
 // forte) pro vão em si, entre o ponto A já armado e o ponto B ao vivo.
 const COR_TRIM_QUEBRA = "#0ea5e9";
+
+// Iteração 41 (pedido do usuário: "corrija o defeito quando vou apagar
+// algumas linhas ela quebra em varios pedaços ao inves de ficar
+// vermelhar e apagar de uma vez") -- com a ferramenta Apagar ativa, a
+// forma sob o cursor agora acende neste vermelho ANTES do clique (hover),
+// deixando claro exatamente o que vai ser removido POR INTEIRO com um
+// único clique -- sem esse aviso, era fácil confundir Apagar com o TRIM
+// (Aparar), que de propósito corta só um pedaço da linha (ver
+// COR_TRIM_QUEBRA acima); Apagar nunca corta, sempre remove o elemento
+// inteiro de uma vez (ver `GeometryLayer.handleShapeClick`).
+const COR_APAGAR_HOVER = "#dc2626";
+
+// Iteração 41 -- FILLET generalizado (ver `store.ts#aplicarFillet`):
+// destaca em roxo a 1ª aresta já escolhida, enquanto o usuário ainda não
+// clicou na 2ª -- sem esse aviso, depois de clicar na 1ª linha/aresta
+// não havia NENHUM sinal visual de qual delas já estava armada.
+const COR_FILLET_ALVO1 = "#9333ea";
 
 /** Translada uma cópia "fantasma" de uma geometria por (dx, dy) -- só para preview, nunca persistido. */
 function transladarPreview(g: Geometria, dx: number, dy: number): Geometria {
@@ -153,7 +171,7 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
   const offsetAlvoSegmento = useCadStore((s) => s.offsetAlvoSegmento);
   const offsetHover = useCadStore((s) => s.offsetHover);
   const offsetDistancia = useCadStore((s) => s.offsetDistancia);
-  const filletAlvo1Id = useCadStore((s) => s.filletAlvo1Id);
+  const filletAlvo1 = useCadStore((s) => s.filletAlvo1);
   const selecionarAlvoOffset = useCadStore((s) => s.selecionarAlvoOffset);
   const selecionarAlvo1Fillet = useCadStore((s) => s.selecionarAlvo1Fillet);
   const aplicarFillet = useCadStore((s) => s.aplicarFillet);
@@ -167,6 +185,33 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
   const inserirVerticeNoMeio = useCadStore((s) => s.inserirVerticeNoMeio);
   const abrirMenuVertice = useCadStore((s) => s.abrirMenuVertice);
   const viewportAtivoId = useCadStore((s) => s.viewportAtivoId);
+
+  // Iteração 41 -- hover vermelho do Apagar (ver `COR_APAGAR_HOVER`
+  // acima). Estado só de UI (não precisa viver no store global -- nada
+  // além deste componente depende de "qual forma está em mira pro
+  // Apagar agora"), zerado sempre que a ferramenta deixa de ser
+  // "apagar" (troca de ferramenta no meio do hover não pode deixar um
+  // destaque vermelho "grudado" numa forma). Ajustado DURANTE a
+  // renderização (padrão recomendado pelo React pra "resetar estado
+  // quando uma prop muda", em vez de um `useEffect` chamando `setState`
+  // no corpo -- isso dispara o lint `react-hooks/set-state-in-effect`,
+  // que sinaliza o risco de cascata de renders; aqui não há esse risco
+  // porque o `if` só dispara quando `ferramenta` de fato muda, mas o
+  // padrão de render é a forma canônica mesmo assim).
+  const [apagarHoverId, setApagarHoverId] = useState<string | null>(null);
+  const [ferramentaAnteriorParaHover, setFerramentaAnteriorParaHover] = useState(ferramenta);
+  if (ferramenta !== ferramentaAnteriorParaHover) {
+    setFerramentaAnteriorParaHover(ferramenta);
+    if (ferramenta !== "apagar" && apagarHoverId !== null) setApagarHoverId(null);
+  }
+  /** Handlers de hover só ativos com Apagar selecionado -- em qualquer outra ferramenta não faz nada (e não força re-render à toa). */
+  function hoverApagarHandlers(id: string) {
+    if (ferramenta !== "apagar") return {};
+    return {
+      onMouseEnter: () => setApagarHoverId(id),
+      onMouseLeave: () => setApagarHoverId((atual) => (atual === id ? null : atual)),
+    };
+  }
 
   // Só intercepta o clique quando a ferramenta é seleção/apagar/hachura/
   // deslocar(1º clique)/concordância; nas ferramentas de desenho (linha/
@@ -216,11 +261,17 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
       const pontoMundo = pointer ? screenToWorld(pointer, viewport) : { x: 0, y: 0 };
       selecionarAlvoOffset(id, pontoMundo);
     } else if (ferramenta === "concordancia") {
+      // Iteração 41: generalizado pra aceitar clicar numa ARESTA de
+      // retângulo/polígono/polilinha (não só uma "linha" solta) -- por
+      // isso precisa de ONDE dentro da forma foi o clique, igual ao
+      // OFFSET logo acima (ver `selecionarAlvoOffset`).
       e.cancelBubble = true;
-      if (!filletAlvo1Id) {
-        selecionarAlvo1Fillet(id);
+      const pointerFillet = e.target.getStage()?.getPointerPosition();
+      const pontoMundoFillet = pointerFillet ? screenToWorld(pointerFillet, viewport) : { x: 0, y: 0 };
+      if (!filletAlvo1) {
+        selecionarAlvo1Fillet(id, pontoMundoFillet);
       } else {
-        const resultado = aplicarFillet(id);
+        const resultado = aplicarFillet(id, pontoMundoFillet);
         if (!resultado.ok) pushComando(resultado.erro ?? "FILLET: não foi possível concordar essas duas linhas.");
       }
     } else if (ferramenta === "selecionar") {
@@ -356,18 +407,23 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
         if (!camada.visible) return null;
 
         const selecionado = selecionadoIds.includes(g.id);
+        // Iteração 41 -- ver `COR_APAGAR_HOVER`/`hoverApagarHandlers` acima:
+        // com Apagar ativo, a forma sob o cursor destaca em vermelho ANTES
+        // do clique, com prioridade sobre o azul de seleção.
+        const emMiraApagar = ferramenta === "apagar" && apagarHoverId === g.id;
         if (g.tipo === "linha") {
           return (
             <Line
               key={g.id}
               points={[g.x1, g.y1, g.x2, g.y2]}
-              stroke={selecionado ? COR_SELECAO : camada.cor}
-              strokeWidth={(selecionado ? camada.espessuraDaLinha + 0.6 : camada.espessuraDaLinha) / scale}
+              stroke={emMiraApagar ? COR_APAGAR_HOVER : selecionado ? COR_SELECAO : camada.cor}
+              strokeWidth={(emMiraApagar || selecionado ? camada.espessuraDaLinha + 0.6 : camada.espessuraDaLinha) / scale}
               hitStrokeWidth={Math.max(10 / scale, 6)}
               dash={dashDaCamada(camada, scale)}
               lineCap="round"
               onClick={handleShapeClick(g.id)}
               onTap={handleShapeClick(g.id)}
+              {...hoverApagarHandlers(g.id)}
             />
           );
         }
@@ -378,13 +434,14 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
               x={g.x}
               y={g.y}
               radius={g.raio}
-              stroke={selecionado ? COR_SELECAO : camada.cor}
-              strokeWidth={(selecionado ? camada.espessuraDaLinha + 0.6 : camada.espessuraDaLinha) / scale}
+              stroke={emMiraApagar ? COR_APAGAR_HOVER : selecionado ? COR_SELECAO : camada.cor}
+              strokeWidth={(emMiraApagar || selecionado ? camada.espessuraDaLinha + 0.6 : camada.espessuraDaLinha) / scale}
               hitStrokeWidth={Math.max(10 / scale, 6)}
               dash={dashDaCamada(camada, scale)}
               {...estiloHachuraKonva(g.hachura)}
               onClick={handleShapeClick(g.id)}
               onTap={handleShapeClick(g.id)}
+              {...hoverApagarHandlers(g.id)}
             />
           );
         }
@@ -395,8 +452,10 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
               geo={g}
               scale={scale}
               selecionado={selecionado}
+              destacarApagar={emMiraApagar}
               onClick={handleShapeClick(g.id)}
               camada={camada}
+              {...hoverApagarHandlers(g.id)}
             />
           );
         }
@@ -408,13 +467,14 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
               y={g.y}
               width={g.largura}
               height={g.altura}
-              stroke={selecionado ? COR_SELECAO : camada.cor}
-              strokeWidth={(selecionado ? camada.espessuraDaLinha + 0.6 : camada.espessuraDaLinha) / scale}
+              stroke={emMiraApagar ? COR_APAGAR_HOVER : selecionado ? COR_SELECAO : camada.cor}
+              strokeWidth={(emMiraApagar || selecionado ? camada.espessuraDaLinha + 0.6 : camada.espessuraDaLinha) / scale}
               hitStrokeWidth={Math.max(10 / scale, 6)}
               dash={dashDoRetangulo(g, camada, scale)}
               {...estiloHachuraKonva(g.hachura)}
               onClick={handleShapeClick(g.id)}
               onTap={handleShapeClick(g.id)}
+              {...hoverApagarHandlers(g.id)}
             />
           );
         }
@@ -424,13 +484,14 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
               key={g.id}
               points={g.pontos.flatMap((p) => [p.x, p.y])}
               closed
-              stroke={selecionado ? COR_SELECAO : camada.cor}
-              strokeWidth={(selecionado ? camada.espessuraDaLinha + 0.6 : camada.espessuraDaLinha) / scale}
+              stroke={emMiraApagar ? COR_APAGAR_HOVER : selecionado ? COR_SELECAO : camada.cor}
+              strokeWidth={(emMiraApagar || selecionado ? camada.espessuraDaLinha + 0.6 : camada.espessuraDaLinha) / scale}
               hitStrokeWidth={Math.max(10 / scale, 6)}
               dash={dashDaCamada(camada, scale)}
               {...estiloHachuraKonva(g.hachura)}
               onClick={handleShapeClick(g.id)}
               onTap={handleShapeClick(g.id)}
+              {...hoverApagarHandlers(g.id)}
             />
           );
         }
@@ -439,11 +500,12 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
             <ArcoShape
               key={g.id}
               geo={g}
-              stroke={selecionado ? COR_SELECAO : camada.cor}
-              strokeWidth={(selecionado ? camada.espessuraDaLinha + 0.6 : camada.espessuraDaLinha) / scale}
+              stroke={emMiraApagar ? COR_APAGAR_HOVER : selecionado ? COR_SELECAO : camada.cor}
+              strokeWidth={(emMiraApagar || selecionado ? camada.espessuraDaLinha + 0.6 : camada.espessuraDaLinha) / scale}
               hitStrokeWidth={Math.max(10 / scale, 6)}
               dash={dashDaCamada(camada, scale)}
               onClick={handleShapeClick(g.id)}
+              {...hoverApagarHandlers(g.id)}
             />
           );
         }
@@ -456,16 +518,17 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
               text={g.conteudo}
               fontSize={g.fontSize}
               rotation={g.rotacao ?? 0}
-              fill={selecionado ? COR_SELECAO : camada.cor}
+              fill={emMiraApagar ? COR_APAGAR_HOVER : selecionado ? COR_SELECAO : camada.cor}
               onClick={handleShapeClick(g.id)}
               onTap={handleShapeClick(g.id)}
+              {...hoverApagarHandlers(g.id)}
             />
           );
         }
         if (g.tipo === "cota") {
           const { q1, q2 } = linhaDeCota({ x: g.x1, y: g.y1 }, { x: g.x2, y: g.y2 }, { x: g.px, y: g.py });
-          const cor = selecionado ? COR_SELECAO : camada.cor;
-          const largura = (selecionado ? camada.espessuraDaLinha + 0.6 : camada.espessuraDaLinha) / scale;
+          const cor = emMiraApagar ? COR_APAGAR_HOVER : selecionado ? COR_SELECAO : camada.cor;
+          const largura = (emMiraApagar || selecionado ? camada.espessuraDaLinha + 0.6 : camada.espessuraDaLinha) / scale;
           const hit = Math.max(10 / scale, 6);
           const dashCota = dashDaCamada(camada, scale);
           return (
@@ -478,6 +541,7 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
                 dash={dashCota}
                 onClick={handleShapeClick(g.id)}
                 onTap={handleShapeClick(g.id)}
+                {...hoverApagarHandlers(g.id)}
               />
               <Line
                 points={[g.x2, g.y2, q2.x, q2.y]}
@@ -487,6 +551,7 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
                 dash={dashCota}
                 onClick={handleShapeClick(g.id)}
                 onTap={handleShapeClick(g.id)}
+                {...hoverApagarHandlers(g.id)}
               />
               <Line
                 points={[q1.x, q1.y, q2.x, q2.y]}
@@ -496,6 +561,7 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
                 dash={dashCota}
                 onClick={handleShapeClick(g.id)}
                 onTap={handleShapeClick(g.id)}
+                {...hoverApagarHandlers(g.id)}
               />
               {/* Iteração 12s: reformata ao vivo na unidade de exibição atual
                   (mm/cm/m) sempre que `distanciaMm` estiver presente --
@@ -509,6 +575,7 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
                 fill={cor}
                 onClick={handleShapeClick(g.id)}
                 onTap={handleShapeClick(g.id)}
+                {...hoverApagarHandlers(g.id)}
               />
             </Group>
           );
@@ -521,14 +588,15 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
             <Line
               key={g.id}
               points={g.pontos.flatMap((p) => [p.x, p.y])}
-              stroke={selecionado ? COR_SELECAO : camada.cor}
-              strokeWidth={(selecionado ? camada.espessuraDaLinha + 0.6 : camada.espessuraDaLinha) / scale}
+              stroke={emMiraApagar ? COR_APAGAR_HOVER : selecionado ? COR_SELECAO : camada.cor}
+              strokeWidth={(emMiraApagar || selecionado ? camada.espessuraDaLinha + 0.6 : camada.espessuraDaLinha) / scale}
               hitStrokeWidth={Math.max(10 / scale, 6)}
               dash={dashDaCamada(camada, scale)}
               lineCap="round"
               lineJoin="round"
               onClick={handleShapeClick(g.id)}
               onTap={handleShapeClick(g.id)}
+              {...hoverApagarHandlers(g.id)}
             />
           );
         }
@@ -541,8 +609,10 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
               camadas={camadas}
               scale={scale}
               selecionado={selecionado}
+              destacarApagar={emMiraApagar}
               ativo={viewportAtivoId === g.id}
               onClick={handleShapeClick(g.id)}
+              {...hoverApagarHandlers(g.id)}
             />
           );
         }
@@ -801,6 +871,28 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
             />
           )}
         </>
+      )}
+
+      {/* FILLET (Concordância) -- 1ª aresta já armada (`filletAlvo1`),
+          aguardando o clique na 2ª: destaca em roxo (`COR_FILLET_ALVO1`)
+          qual aresta específica foi escolhida (relevante sobretudo pra
+          retângulo/polígono, que têm mais de uma). */}
+      {ferramenta === "concordancia" && filletAlvo1 && (
+        (() => {
+          const alvoFillet = geometria.find((g) => g.id === filletAlvo1.geometriaId);
+          const arestaFillet = alvoFillet ? arestasDe(alvoFillet)[filletAlvo1.indiceAresta] : undefined;
+          if (!arestaFillet) return null;
+          return (
+            <Line
+              points={[arestaFillet.p1.x, arestaFillet.p1.y, arestaFillet.p2.x, arestaFillet.p2.y]}
+              stroke={COR_FILLET_ALVO1}
+              strokeWidth={3 / scale}
+              dash={[6 / scale, 4 / scale]}
+              lineCap="round"
+              listening={false}
+            />
+          );
+        })()
       )}
 
       {/* OFFSET (Deslocar) -- FASE 1, ANTES do 1º clique: destaca em
