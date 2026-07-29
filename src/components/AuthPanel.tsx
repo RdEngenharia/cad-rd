@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useCadStore } from "@/lib/store";
 import { observarUsuario, sair } from "@/lib/auth";
+import { ehAdmin, observarConversaUsuario, observarTodasConversas } from "@/lib/suporte";
 import { LoginModal } from "./LoginModal";
 
 /**
@@ -25,13 +26,39 @@ export function AuthPanel() {
   const usuario = useCadStore((s) => s.usuario);
   const setUsuario = useCadStore((s) => s.setUsuario);
   const abrirGerenciadorProjetos = useCadStore((s) => s.abrirGerenciadorProjetos);
+  const abrirSuporte = useCadStore((s) => s.abrirSuporte);
   const cancelarDesenho = useCadStore((s) => s.cancelarDesenho);
   const [loginAberto, setLoginAberto] = useState(false);
+  const [suporteNaoLido, setSuporteNaoLido] = useState(0);
 
   useEffect(() => {
     const unsubscribe = observarUsuario(setUsuario);
     return unsubscribe;
   }, [setUsuario]);
+
+  // Iteração 45 -- pedido do usuário: "ative notificação dentro do cad
+  // para que quando eu responder ele seja notificado no chat, preciso
+  // receber aviso de mensagens tambem" -- bolinha de notificação no botão
+  // "💬 Sugestões", alimentada por um listener em tempo real (Firestore
+  // `onSnapshot`, ver `lib/suporte.ts`) sempre ativo enquanto logado, não
+  // só quando o painel está aberto. Usuário comum: 1 (tem resposta nova do
+  // admin) ou 0. Admin (`EMAIL_ADMIN`): total de conversas com mensagem
+  // nova de algum usuário.
+  useEffect(() => {
+    // Sem usuário: nada pra observar -- o botão nem aparece nesse caso (ver
+    // JSX abaixo), então não há necessidade de zerar `suporteNaoLido`
+    // sincronamente aqui (a próxima vez que `usuario` existir, o listener
+    // abaixo já chama de volta com o valor certo).
+    if (!usuario) return;
+    if (ehAdmin(usuario.email)) {
+      return observarTodasConversas((conversas) => {
+        setSuporteNaoLido(conversas.filter((c) => c.naoLidoAdmin).length);
+      });
+    }
+    return observarConversaUsuario(usuario.uid, (conversa) => {
+      setSuporteNaoLido(conversa?.naoLidoUsuario ? 1 : 0);
+    });
+  }, [usuario]);
 
   async function handleSair() {
     await sair();
@@ -76,6 +103,19 @@ export function AuthPanel() {
               className="rounded border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
             >
               📁 Meus Projetos
+            </button>
+            <button
+              type="button"
+              onClick={abrirSuporte}
+              title="Envie erros encontrados ou sugestões de melhoria -- versão Beta"
+              className="relative rounded border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+            >
+              💬 Sugestões
+              {suporteNaoLido > 0 && (
+                <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[9px] font-semibold text-white">
+                  {suporteNaoLido}
+                </span>
+              )}
             </button>
             <button
               type="button"

@@ -10,6 +10,7 @@ import { StatusBar } from "./StatusBar";
 import { JsonPanel } from "./JsonPanel";
 import { CalibrationModal } from "./CalibrationModal";
 import { ProjectManagerModal } from "./ProjectManagerModal";
+import { SuportePanel } from "./SuportePanel";
 import { useHydrateXrefs } from "@/lib/useHydrateXrefs";
 import { useCadStore } from "@/lib/store";
 
@@ -100,6 +101,7 @@ export function Editor() {
       </div>
       <CalibrationModal />
       <ProjectManagerModal />
+      <SuportePanel />
     </div>
   );
 }

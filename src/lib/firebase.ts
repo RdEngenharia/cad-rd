@@ -68,7 +68,13 @@ export function obterApp(): FirebaseApp {
   return app;
 }
 
-function getDb(): Firestore {
+/**
+ * Instância única do Firestore -- exportada (Iteração 45) para que
+ * `lib/suporte.ts` (chat de Sugestões/Suporte da versão Beta) reaproveite a
+ * MESMA conexão em vez de abrir uma 2ª instância própria, mesmo espírito de
+ * `obterApp()` já ser compartilhada com `lib/auth.ts`.
+ */
+export function getDb(): Firestore {
   if (!FIREBASE_CONFIGURADO) {
     // Nunca deveria aparecer pro usuário final (todo chamador já checa
     // `FIREBASE_CONFIGURADO` antes) -- mensagem técnica só para quem está

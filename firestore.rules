@@ -41,6 +41,41 @@ service cloud.firestore {
                                 resource.data.owner_uid == request.auth.uid;
     }
 
+    // -----------------------------------------------------------------------
+    // "Sugestões/Suporte" da versão Beta (Iteração 45) -- 1 documento por
+    // usuário (id = uid), cada um uma conversa com o admin. Regra:
+    //   - LEITURA: só o próprio dono (uid) ou o admin (e-mail fixo abaixo)
+    //     -- ninguém mais enxerga a conversa de outra pessoa.
+    //   - ESCRITA: o usuário só pode ACRESCENTAR mensagem com "de":"usuario"
+    //     na PRÓPRIA conversa; só o admin pode acrescentar "de":"admin" --
+    //     ver `ultimaMensagem()` abaixo, que confere o ÚLTIMO elemento do
+    //     array resultante da escrita. Isso é reforçado aqui (não só no
+    //     código do app) porque uma checagem só no cliente pode ser
+    //     contornada por alguém mexendo no console do navegador -- "só eu
+    //     consigo responder" (pedido do usuário) precisa valer de verdade.
+    // -----------------------------------------------------------------------
+    match /suporte/{uid} {
+      function ehAdmin() {
+        return request.auth != null && request.auth.token.email == "rodrigues.solar@hotmail.com";
+      }
+      function ultimaMensagem() {
+        let msgs = request.resource.data.mensagens;
+        return msgs[msgs.size() - 1];
+      }
+
+      allow read: if request.auth != null && (request.auth.uid == uid || ehAdmin());
+
+      allow create: if request.auth != null && request.auth.uid == uid && ultimaMensagem().de == "usuario";
+
+      allow update: if request.auth != null &&
+        (
+          (request.auth.uid == uid && ultimaMensagem().de == "usuario") ||
+          (ehAdmin() && ultimaMensagem().de == "admin")
+        );
+
+      allow delete: if false;
+    }
+
     // Qualquer outra coleção fica bloqueada por padrão (nenhuma outra
     // coleção é usada pelo app hoje).
     match /{document=**} {

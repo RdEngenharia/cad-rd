@@ -721,6 +721,18 @@ interface CadState {
   abrirGerenciadorProjetos: () => void;
   fecharGerenciadorProjetos: () => void;
 
+  /**
+   * "Sugestões/Suporte" da versão Beta (Iteração 45) -- mesmo padrão do
+   * `gerenciadorProjetosAberto` acima: um modal único (`SuportePanel.tsx`,
+   * montado 1x em `Editor.tsx`), aberto pelo botão "💬 Sugestões" da
+   * `AuthPanel`. Mostra o chat do próprio usuário, ou -- só para
+   * `EMAIL_ADMIN` (ver `lib/suporte.ts`) -- o painel com todas as
+   * conversas.
+   */
+  suporteAberto: boolean;
+  abrirSuporte: () => void;
+  fecharSuporte: () => void;
+
   // Padrão de Entrada/Concessionária (leva não-numerada) ----------------------
   /**
    * Insere, num único passo de undo, o conjunto vetorial completo do
@@ -1355,6 +1367,7 @@ export const useCadStore = create<CadState>((set, get) => {
   usuario: null,
   projetosSalvos: [],
   gerenciadorProjetosAberto: false,
+  suporteAberto: false,
   viewportAtivoId: null,
   prenchaAtivaId: null,
   viewportPranchaSelecionadoId: null,
@@ -2755,6 +2768,8 @@ export const useCadStore = create<CadState>((set, get) => {
   setProjetosSalvos: (lista) => set({ projetosSalvos: lista }),
   abrirGerenciadorProjetos: () => set({ gerenciadorProjetosAberto: true }),
   fecharGerenciadorProjetos: () => set({ gerenciadorProjetosAberto: false }),
+  abrirSuporte: () => set({ suporteAberto: true }),
+  fecharSuporte: () => set({ suporteAberto: false }),
 
   // Padrão de Entrada/Concessionária (leva não-numerada): insere o
   // conjunto poste+ramal+medidor+textos como UM ÚNICO passo de undo (só

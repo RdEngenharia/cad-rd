@@ -120,6 +120,7 @@ function parseDimensoesRetanguloMm(
 export function CommandLine() {
   const [texto, setTexto] = useState("");
   const historico = useCadStore((s) => s.historicoComandos);
+  const gerenciadorProjetosAberto = useCadStore((s) => s.gerenciadorProjetosAberto);
   const pushComando = useCadStore((s) => s.pushComando);
   const setFerramenta = useCadStore((s) => s.setFerramenta);
   const cancelarDesenho = useCadStore((s) => s.cancelarDesenho);
@@ -229,6 +230,63 @@ export function CommandLine() {
     // dificuldade as vezes porque quando clico no botao deslocar o campo
     // de digitar o comando da distancia nao ativa sozinho".
   }, [aguardandoConteudoTexto, aguardandoValorDeMedida, ferramenta, offsetDistancia, filletAguardandoRaio, ferramentaAtivacaoSeq]);
+
+  // Iteração 45 -- pedido do usuário: "corrija a barra de comando embaixo
+  // nao fica piscando esperando eu digitar um comando, para digitar o
+  // comando tenho que clicar na barra para depois digitar ai atrasa, quero
+  // que fique igual ao autocad, mesmo eu desenhando uma linha se digitar o
+  // comando e apertar enter ele tem que funcionar sem eu ter que clicar
+  // primeiro na barra de comando". Duas partes:
+  //
+  //   1) Foco de "descanso": sempre que não há nenhum gate bloqueante
+  //      aberto (`gerenciadorProjetosAberto` -- o modal de login
+  //      obrigatório, ver `ProjectManagerModal.tsx`/`AuthPanel.tsx`) e
+  //      nenhum sub-prompt já tomou conta do foco por conta própria
+  //      (`aguardandoConteudoTexto` usa o `<textarea>`, cuidado pelo efeito
+  //      acima), esta caixa fica com o cursor piscando, pronta pra receber
+  //      digitação -- sem precisar de nenhum clique antes.
+  useEffect(() => {
+    if (gerenciadorProjetosAberto || aguardandoConteudoTexto) return;
+    inputRef.current?.focus();
+  }, [gerenciadorProjetosAberto, aguardandoConteudoTexto]);
+
+  //   2) Captura global: se o usuário apertar uma tecla "de digitação"
+  //      (letra/número/símbolo, 1 caractere) em QUALQUER lugar da tela que
+  //      não seja outro campo de texto legítimo (nome do projeto na
+  //      Toolbar, login, renomear projeto/camada, "Abrir por ID" etc. --
+  //      todos identificados só por já estarem focados, `e.target`), essa
+  //      tecla é redirecionada pra cá ANTES do navegador processar o
+  //      caractere -- exatamente como a linha de comando do AutoCAD real,
+  //      onde qualquer tecla digitada em qualquer lugar cai nela. Isso
+  //      cobre o caso relatado: no meio de uma LINHA já em andamento (1º
+  //      ponto clicado no `<canvas>`, que não é um campo de texto), digitar
+  //      um novo comando funciona na hora, sem precisar clicar na barra.
+  //
+  //      Exclusões deliberadas: Ctrl/Alt/Meta (atalhos como Ctrl+Z/Ctrl+C,
+  //      tratados em `CanvasStage.tsx`) e qualquer tecla de mais de 1
+  //      caractere (Espaço -- repete o último comando, Enter, Escape,
+  //      Delete, setas etc., cada uma já com seu próprio atalho global) --
+  //      sem essas exclusões, esta captura brigaria com os atalhos já
+  //      existentes. `gerenciadorProjetosAberto` também é checado aqui
+  //      (não só no efeito acima) para nunca roubar foco por trás do modal
+  //      de login obrigatório, que não tem nenhum campo próprio quando
+  //      ainda não há usuário logado (ver Iteração 45 -- fix de "ao
+  //      deslogar continuo desenhando no cad").
+  useEffect(() => {
+    function onKeyDownGlobal(e: KeyboardEvent) {
+      if (gerenciadorProjetosAberto) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key.length !== 1 || e.key === " ") return;
+      const alvo = e.target as HTMLElement | null;
+      const jaEmCampo =
+        alvo &&
+        (alvo.tagName === "INPUT" || alvo.tagName === "TEXTAREA" || alvo.tagName === "SELECT" || alvo.isContentEditable);
+      if (jaEmCampo) return;
+      (aguardandoConteudoTexto ? textareaRef.current : inputRef.current)?.focus();
+    }
+    window.addEventListener("keydown", onKeyDownGlobal);
+    return () => window.removeEventListener("keydown", onKeyDownGlobal);
+  }, [gerenciadorProjetosAberto, aguardandoConteudoTexto]);
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
