@@ -1681,13 +1681,20 @@ export function gerarDimensionamentoCargas(
       // linhas curtas via `quebrarTexto`, respeitando a largura do próprio
       // ramal (pedido do usuário: "prefiro ter 4 linhas do que uma linha so
       // gigante" / "a legenda nunca pode ser maior que um desenho").
+      //
+      // Iteração 45 -- pedido do usuário: "deixe apenas o C1, o disjuntor
+      // e a bitola do condutor, sobre a qual circuito ele pertence ja
+      // temos essa informacao na tabela de cargas". Antes, a 1ª linha
+      // repetia `descricao` (a lista de ambientes que o circuito
+      // alimenta) e a 2ª linha (multifilar) acrescentava "-- FASE X" --
+      // ambas removidas: `descricao` já aparece na tabela de cargas logo
+      // acima (redundante aqui, e era o que mais inflava o rótulo), e a
+      // fase de cada condutor já é visualmente óbvia pela COR de cada
+      // linha desenhada (ver `CAMADA_FASE_INFO`) -- não precisa repetir em
+      // texto. O rótulo do ramal agora é só: nome do circuito (ex. "C1")
+      // + disjuntor/bitola.
       const larguraMaximaRotulo = larguraRamal[idx] + ESPACO_ENTRE_RAMAIS - 4;
-      const linhasRotuloBrutas = [
-        `${c.nome} - ${c.descricao}`,
-        mostrarColunaFase
-          ? `${c.disjuntorA}A ${c.polos}P -- ${fmt(c.bitolaMm2, 1)}mm² -- FASE ${c.fases.map((f) => ROTULO_FASE[f]).join("-")}`
-          : `${c.disjuntorA}A ${c.polos}P -- ${fmt(c.bitolaMm2, 1)}mm²`,
-      ];
+      const linhasRotuloBrutas = [c.nome, `${c.disjuntorA}A ${c.polos}P -- ${fmt(c.bitolaMm2, 1)}mm²`];
       const linhasRotulo = linhasRotuloBrutas.flatMap((linha) => quebrarTexto(linha, FS_TABELA, larguraMaximaRotulo));
       linhasRotulo.forEach((linhaTxt, i) => {
         textoT(xRamal - larguraRamal[idx] / 2 + 2, yFimBloco + 8 + i * FS_TABELA * ALTURA_LINHA, linhaTxt, FS_TABELA, CAMADA_DIAG);

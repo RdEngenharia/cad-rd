@@ -3024,7 +3024,23 @@ export const useCadStore = create<CadState>((set, get) => {
         ? previaCargas
         : construirGeometriaCargasEletricas(dados, origemFinalCargas.x, origemFinalCargas.y, larguraMaximaCargas);
 
-    get().criarCamada("QDC_DIAGRAMA", "#0f172a");
+    // Iteração 45 -- pedido do usuário: "quando for monofasico deixe as
+    // linhas do diagrama apenas vermelho". Sistema monofásico não tem
+    // diagrama MULTIFILAR (só há 1 fase, nada a distinguir por cor entre
+    // condutores -- ver `mostrarColunaFase`/`CAMADA_FASE_INFO`), então o
+    // diagrama inteiro (tronco, barramento, ramais) sai sempre na MESMA
+    // camada única `QDC_DIAGRAMA` -- passa a usar vermelho (`#dc2626`,
+    // igual à cor já usada pra fase F1/R no multifilar, ver
+    // `CAMADA_FASE_INFO`) em vez do cinza-escuro genérico de antes.
+    // Sistemas bifásico/trifásico mantêm a cor de sempre (o multifilar já
+    // usa cores próprias por fase; `QDC_DIAGRAMA` ali só desenha o tronco/
+    // disjuntores, não precisa ser vermelho). `atualizarCamada` (além de
+    // `criarCamada`, que é no-op se a camada já existir) garante que a cor
+    // reflita o sistema ATUAL mesmo numa camada criada antes, numa geração
+    // anterior com outro nº de fases.
+    const corDiagramaQdc = dados.config.numeroFases === 1 ? "#dc2626" : "#0f172a";
+    get().criarCamada("QDC_DIAGRAMA", corDiagramaQdc);
+    get().atualizarCamada("QDC_DIAGRAMA", { cor: corDiagramaQdc });
     get().criarCamada("QDC_TABELA", "#334155");
     // Iteração 33 -- uma camada por fase (+ neutro) do diagrama multifilar,
     // cada uma com sua própria cor (pedido do usuário: "quero que cada fase

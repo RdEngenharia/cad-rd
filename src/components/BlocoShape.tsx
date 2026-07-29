@@ -5,6 +5,7 @@ import type { KonvaEventObject } from "konva/lib/Node";
 import { useImage } from "@/lib/useImage";
 import { blockToDataUri, getBlockDef } from "@/lib/blocks";
 import type { BlocoGeometria, Camada } from "@/lib/types";
+import type { TemaCanvas } from "@/lib/temaCanvas";
 
 interface BlocoShapeProps {
   geo: BlocoGeometria;
@@ -30,6 +31,14 @@ interface BlocoShapeProps {
   destacarApagar?: boolean;
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
+  /**
+   * Tema do fundo do Desenho (Iteração 45, opcional -- default "claro",
+   * comportamento de sempre). O traço de todo símbolo desta biblioteca é
+   * cravado na cor `#0f172a` (ver `blocks.ts#STROKE`), que por
+   * coincidência é EXATAMENTE a cor do fundo escuro (`bg-slate-900`) --
+   * ficava invisível. Ver `blocks.ts#recolorirParaTema`.
+   */
+  tema?: TemaCanvas;
 }
 
 /**
@@ -44,7 +53,7 @@ interface BlocoShapeProps {
 /** Espessura de traço (em unidades do viewBox 0-100) usada como referência na maioria dos SVGs de `lib/blocks.ts` -- ver `reescalarEspessuras`. */
 const ESPESSURA_BASE_VIEWBOX = 4;
 
-export function BlocoShape({ geo, scale, selecionado, onClick, camada, destacarApagar, onMouseEnter, onMouseLeave }: BlocoShapeProps) {
+export function BlocoShape({ geo, scale, selecionado, onClick, camada, destacarApagar, onMouseEnter, onMouseLeave, tema = "claro" }: BlocoShapeProps) {
   const def = getBlockDef(geo.nome);
 
   // Fator de reescala do traço do bloco (Iteração 12f): calibrado pra
@@ -60,7 +69,7 @@ export function BlocoShape({ geo, scale, selecionado, onClick, camada, destacarA
   // da arquitetura de bloco-como-imagem, não corrigida aqui).
   const fatorEspessura =
     camada && def ? (camada.espessuraDaLinha * (100 / def.largura)) / ESPESSURA_BASE_VIEWBOX : 1;
-  const img = useImage(def ? blockToDataUri(def, fatorEspessura) : undefined);
+  const img = useImage(def ? blockToDataUri(def, fatorEspessura, tema) : undefined);
 
   if (!def) return null;
 

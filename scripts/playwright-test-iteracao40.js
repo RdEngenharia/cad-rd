@@ -40,6 +40,13 @@ async function main() {
   }
 
   await page.goto("http://localhost:3000", { waitUntil: "networkidle" });
+    // Iteração 45 -- login virou obrigatório antes de qualquer ação no
+  // modal de Projetos (ver ProjectManagerModal.tsx); simula estar
+  // logado via o binding de debug, sem precisar automatizar o
+  // formulário de login de verdade.
+  await page.evaluate(() =>
+    window.__cadStoreTeste.getState().setUsuario({ uid: "teste-uid", email: "teste@teste.com" })
+  );
   const fecharProjetos = page.locator('button[title="Fechar e ir para o desenho atual"]');
   if (await fecharProjetos.isVisible().catch(() => false)) await fecharProjetos.click();
   await page.waitForTimeout(300);

@@ -174,27 +174,38 @@ export function ProjectManagerModal() {
       <div className="flex max-h-[80vh] w-[440px] flex-col rounded-lg bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
           <h2 className="text-sm font-semibold text-slate-800">📁 Projetos</h2>
-          <button type="button" onClick={onFechar} className="text-slate-400 hover:text-slate-600" title="Fechar e ir para o desenho atual">
-            ✕
-          </button>
+          {/* Iteração 45 -- pedido do usuário: login agora é OBRIGATÓRIO
+              antes de criar/editar/salvar qualquer projeto (antes, "Novo
+              Projeto"/"Salvar"/"Abrir por ID" funcionavam sem conta -- de
+              propósito, desde a Iteração 34, pra uso 100% local/offline;
+              o usuário decidiu mudar esse comportamento agora). Sem
+              `usuario`, não existe "fechar e ir pro desenho atual" pra
+              fugir do login -- só some daqui quando `usuario` existir. */}
+          {usuario && (
+            <button type="button" onClick={onFechar} className="text-slate-400 hover:text-slate-600" title="Fechar e ir para o desenho atual">
+              ✕
+            </button>
+          )}
         </div>
 
-        <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-2.5">
-          <button
-            type="button"
-            onClick={handleNovoProjeto}
-            className="rounded border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
-          >
-            + Novo Projeto
-          </button>
-          <button
-            type="button"
-            onClick={handleSalvarAtual}
-            className="rounded bg-emerald-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-700"
-          >
-            💾 Salvar projeto atual
-          </button>
-        </div>
+        {usuario && (
+          <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-2.5">
+            <button
+              type="button"
+              onClick={handleNovoProjeto}
+              className="rounded border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+            >
+              + Novo Projeto
+            </button>
+            <button
+              type="button"
+              onClick={handleSalvarAtual}
+              className="rounded bg-emerald-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-700"
+            >
+              💾 Salvar projeto atual
+            </button>
+          </div>
+        )}
 
         {status && <p className="px-4 pt-2 text-[11px] text-emerald-600">{status}</p>}
         {erro && <p className="px-4 pt-2 text-[11px] text-red-600">{erro}</p>}
@@ -203,9 +214,7 @@ export function ProjectManagerModal() {
           {!usuario ? (
             <div className="space-y-2 py-2">
               <p className="rounded border border-blue-100 bg-blue-50 p-2 text-[11px] leading-snug text-blue-700">
-                Entre com uma conta pra ver aqui a lista de todos os seus projetos salvos na nuvem
-                (abrir/renomear/excluir). Sem login, dá pra continuar usando &quot;Novo&quot;/&quot;Salvar&quot; acima e abrir
-                um projeto específico por ID logo abaixo.
+                É preciso entrar com uma conta (ou criar uma) pra criar, abrir, editar ou salvar qualquer projeto.
               </p>
               <button
                 type="button"
@@ -311,39 +320,43 @@ export function ProjectManagerModal() {
         {/* Abrir por ID (Iteração 34) -- fluxo antigo que existia solto na
             Toolbar (`Carregar`), agora dentro do modal único: útil pra
             abrir um projeto de outra pessoa (compartilhado por ID, ver
-            `firestore.rules` -- leitura é pública por ID) ou pra quem não
-            está logado. */}
-        <div className="border-t border-slate-100 px-4 py-2">
-          {mostrarCampoId ? (
-            <div className="flex items-center gap-1">
-              <input
-                autoFocus
-                value={idParaCarregar}
-                onChange={(e) => setIdParaCarregar(e.target.value)}
-                placeholder="Cole o id_projeto aqui"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleAbrirPorId();
-                  if (e.key === "Escape") setMostrarCampoId(false);
-                }}
-                className="min-w-0 flex-1 rounded border border-slate-300 px-1.5 py-1 text-xs"
-              />
-              <button type="button" onClick={handleAbrirPorId} className="rounded bg-slate-700 px-2 py-1 text-xs text-white">
-                Abrir
+            `firestore.rules` -- leitura é pública por ID). Iteração 45:
+            login virou obrigatório pra qualquer ação neste modal, então
+            isso só aparece pra quem já está logado (não é mais um atalho
+            pra quem não tem conta). */}
+        {usuario && (
+          <div className="border-t border-slate-100 px-4 py-2">
+            {mostrarCampoId ? (
+              <div className="flex items-center gap-1">
+                <input
+                  autoFocus
+                  value={idParaCarregar}
+                  onChange={(e) => setIdParaCarregar(e.target.value)}
+                  placeholder="Cole o id_projeto aqui"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleAbrirPorId();
+                    if (e.key === "Escape") setMostrarCampoId(false);
+                  }}
+                  className="min-w-0 flex-1 rounded border border-slate-300 px-1.5 py-1 text-xs"
+                />
+                <button type="button" onClick={handleAbrirPorId} className="rounded bg-slate-700 px-2 py-1 text-xs text-white">
+                  Abrir
+                </button>
+                <button type="button" onClick={() => setMostrarCampoId(false)} className="px-1 text-xs text-slate-400">
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setMostrarCampoId(true)}
+                className="text-[11px] text-slate-500 hover:text-slate-700 hover:underline"
+              >
+                Abrir um projeto por ID...
               </button>
-              <button type="button" onClick={() => setMostrarCampoId(false)} className="px-1 text-xs text-slate-400">
-                ✕
-              </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setMostrarCampoId(true)}
-              className="text-[11px] text-slate-500 hover:text-slate-700 hover:underline"
-            >
-              Abrir um projeto por ID...
-            </button>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </div>
 
       <LoginModal aberto={loginAberto} onFechar={() => setLoginAberto(false)} />

@@ -12,6 +12,8 @@
  */
 
 import type { BlocoGeometria } from "./types";
+import type { TemaCanvas } from "./temaCanvas";
+import { COR_CLARA_TEMA_ESCURO } from "./corTema";
 
 /** MIME type customizado usado no drag&drop de blocos da `BlockLibraryPanel` para o `CanvasStage`. */
 export const BLOCO_DRAG_MIME = "application/x-cad-bloco";
@@ -725,19 +727,43 @@ function reescalarEspessuras(svgInner: string, fator: number): string {
   });
 }
 
-/** Monta o SVG completo (com tag externa) pronto para virar data-URI. `fatorEspessura` ver `reescalarEspessuras`. */
-export function buildFullSvg(block: BlockDef, fatorEspessura = 1): string {
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">${reescalarEspessuras(block.svgInner, fatorEspessura)}</svg>`;
+/**
+ * Iteração 45 -- pedido do usuário: "faça o mesmo com a cor dos blocos,
+ * devem ser brancos se o fundo for escuro". O traço de TODO símbolo
+ * elétrico desta biblioteca é "cravado" na marcação com a mesma cor fixa
+ * (`STROKE`, `#0f172a`) -- que por coincidência é EXATAMENTE a cor do
+ * fundo escuro do Desenho (`bg-slate-900`), deixando qualquer bloco
+ * carimbado (tomada, interruptor, disjuntor...) completamente invisível
+ * no tema escuro. Como `STROKE` é a ÚNICA cor hexadecimal literal usada
+ * em todo este arquivo (o resto é `white`/`none`, usados de propósito
+ * como preenchimento de "recorte" atrás do traço, que já contrasta bem
+ * com fundo escuro), uma troca de string simples cobre TODOS os símbolos
+ * de uma vez, sem precisar editar cada `svgInner` -- mesmo espírito de
+ * `corTema.ts#corParaTema`, aplicado aqui porque o SVG é montado como
+ * string (não dá pra passar por `corParaTema` direto, que espera 1 única
+ * cor, não uma marcação inteira).
+ */
+function recolorirParaTema(svgInner: string, tema: TemaCanvas): string {
+  if (tema !== "escuro") return svgInner;
+  return svgInner.split(STROKE).join(COR_CLARA_TEMA_ESCURO);
+}
+
+/** Monta o SVG completo (com tag externa) pronto para virar data-URI. `fatorEspessura` ver `reescalarEspessuras`; `tema` ver `recolorirParaTema`. */
+export function buildFullSvg(block: BlockDef, fatorEspessura = 1, tema: TemaCanvas = "claro"): string {
+  const comEspessura = reescalarEspessuras(block.svgInner, fatorEspessura);
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">${recolorirParaTema(comEspessura, tema)}</svg>`;
 }
 
 /**
  * Converte o SVG do bloco em data-URI utilizável por <img>/Konva.Image.
  * `fatorEspessura` (Iteração 12f, opcional -- default 1 = como sempre foi)
  * reescala os `stroke-width` do SVG; ver `BlocoShape.tsx` para como o
- * fator é calculado a partir de `camada.espessuraDaLinha`.
+ * fator é calculado a partir de `camada.espessuraDaLinha`. `tema`
+ * (Iteração 45, opcional -- default "claro" = como sempre foi) clareia o
+ * traço do símbolo pro tema escuro, ver `recolorirParaTema`.
  */
-export function blockToDataUri(block: BlockDef, fatorEspessura = 1): string {
-  const svg = buildFullSvg(block, fatorEspessura);
+export function blockToDataUri(block: BlockDef, fatorEspessura = 1, tema: TemaCanvas = "claro"): string {
+  const svg = buildFullSvg(block, fatorEspessura, tema);
   // encodeURIComponent é mais seguro que btoa para SVG com acentos/UTF-8.
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }

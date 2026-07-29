@@ -5,6 +5,7 @@ import { Layer, Line, Circle, Rect, Text, RegularPolygon, Shape, Group } from "r
 import type { KonvaEventObject } from "konva/lib/Node";
 import { useCadStore, escalarGeometria } from "@/lib/store";
 import { resolverCamada } from "@/lib/layers";
+import { corParaTema } from "@/lib/corTema";
 import { estiloHachuraKonva } from "@/lib/hachura";
 import { linhaDeCota } from "@/lib/geom";
 import {
@@ -166,6 +167,9 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
   const trimQuebraCandidata = useCadStore((s) => s.trimQuebraCandidata);
   const trimQuebraPreviewB = useCadStore((s) => s.trimQuebraPreviewB);
   const unidadeDesenho = useCadStore((s) => s.unidadeDesenho);
+  // Iteração 45 -- ver `lib/corTema.ts`: clareia cores escuras demais
+  // (que ficariam camufladas) quando o tema do Desenho está escuro.
+  const tema = useCadStore((s) => s.temaCanvas);
   const offsetAlvoId = useCadStore((s) => s.offsetAlvoId);
   const offsetAlvoSegmento = useCadStore((s) => s.offsetAlvoSegmento);
   const offsetHover = useCadStore((s) => s.offsetHover);
@@ -417,6 +421,9 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
       {geometria.map((g) => {
         const camada = resolverCamada(camadas, g.camada);
         if (!camada.visible) return null;
+        // Iteração 45 -- ver `lib/corTema.ts`: substitui `camada.cor` só na
+        // EXIBIÇÃO quando ela ficaria camuflada no tema escuro.
+        const corCamada = corParaTema(camada.cor, tema);
 
         const selecionado = selecionadoIds.includes(g.id);
         // Iteração 41 -- ver `COR_APAGAR_HOVER`/`hoverApagarHandlers` acima:
@@ -428,7 +435,7 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
             <Line
               key={g.id}
               points={[g.x1, g.y1, g.x2, g.y2]}
-              stroke={emMiraApagar ? COR_APAGAR_HOVER : selecionado ? COR_SELECAO : camada.cor}
+              stroke={emMiraApagar ? COR_APAGAR_HOVER : selecionado ? COR_SELECAO : corCamada}
               strokeWidth={(emMiraApagar || selecionado ? camada.espessuraDaLinha + 0.6 : camada.espessuraDaLinha) / scale}
               hitStrokeWidth={Math.max(10 / scale, 6)}
               dash={dashDaCamada(camada, scale)}
@@ -446,7 +453,7 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
               x={g.x}
               y={g.y}
               radius={g.raio}
-              stroke={emMiraApagar ? COR_APAGAR_HOVER : selecionado ? COR_SELECAO : camada.cor}
+              stroke={emMiraApagar ? COR_APAGAR_HOVER : selecionado ? COR_SELECAO : corCamada}
               strokeWidth={(emMiraApagar || selecionado ? camada.espessuraDaLinha + 0.6 : camada.espessuraDaLinha) / scale}
               hitStrokeWidth={Math.max(10 / scale, 6)}
               dash={dashDaCamada(camada, scale)}
@@ -467,6 +474,7 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
               destacarApagar={emMiraApagar}
               onClick={handleShapeClick(g.id)}
               camada={camada}
+              tema={tema}
               {...hoverApagarHandlers(g.id)}
             />
           );
@@ -479,7 +487,7 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
               y={g.y}
               width={g.largura}
               height={g.altura}
-              stroke={emMiraApagar ? COR_APAGAR_HOVER : selecionado ? COR_SELECAO : camada.cor}
+              stroke={emMiraApagar ? COR_APAGAR_HOVER : selecionado ? COR_SELECAO : corCamada}
               strokeWidth={(emMiraApagar || selecionado ? camada.espessuraDaLinha + 0.6 : camada.espessuraDaLinha) / scale}
               hitStrokeWidth={Math.max(10 / scale, 6)}
               dash={dashDoRetangulo(g, camada, scale)}
@@ -496,7 +504,7 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
               key={g.id}
               points={g.pontos.flatMap((p) => [p.x, p.y])}
               closed
-              stroke={emMiraApagar ? COR_APAGAR_HOVER : selecionado ? COR_SELECAO : camada.cor}
+              stroke={emMiraApagar ? COR_APAGAR_HOVER : selecionado ? COR_SELECAO : corCamada}
               strokeWidth={(emMiraApagar || selecionado ? camada.espessuraDaLinha + 0.6 : camada.espessuraDaLinha) / scale}
               hitStrokeWidth={Math.max(10 / scale, 6)}
               dash={dashDaCamada(camada, scale)}
@@ -512,7 +520,7 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
             <ArcoShape
               key={g.id}
               geo={g}
-              stroke={emMiraApagar ? COR_APAGAR_HOVER : selecionado ? COR_SELECAO : camada.cor}
+              stroke={emMiraApagar ? COR_APAGAR_HOVER : selecionado ? COR_SELECAO : corCamada}
               strokeWidth={(emMiraApagar || selecionado ? camada.espessuraDaLinha + 0.6 : camada.espessuraDaLinha) / scale}
               hitStrokeWidth={Math.max(10 / scale, 6)}
               dash={dashDaCamada(camada, scale)}
@@ -530,7 +538,7 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
               text={g.conteudo}
               fontSize={g.fontSize}
               rotation={g.rotacao ?? 0}
-              fill={emMiraApagar ? COR_APAGAR_HOVER : selecionado ? COR_SELECAO : camada.cor}
+              fill={emMiraApagar ? COR_APAGAR_HOVER : selecionado ? COR_SELECAO : corCamada}
               onClick={handleShapeClick(g.id)}
               onTap={handleShapeClick(g.id)}
               {...hoverApagarHandlers(g.id)}
@@ -539,7 +547,7 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
         }
         if (g.tipo === "cota") {
           const { q1, q2 } = linhaDeCota({ x: g.x1, y: g.y1 }, { x: g.x2, y: g.y2 }, { x: g.px, y: g.py });
-          const cor = emMiraApagar ? COR_APAGAR_HOVER : selecionado ? COR_SELECAO : camada.cor;
+          const cor = emMiraApagar ? COR_APAGAR_HOVER : selecionado ? COR_SELECAO : corCamada;
           const largura = (emMiraApagar || selecionado ? camada.espessuraDaLinha + 0.6 : camada.espessuraDaLinha) / scale;
           const hit = Math.max(10 / scale, 6);
           const dashCota = dashDaCamada(camada, scale);
@@ -600,7 +608,7 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
             <Line
               key={g.id}
               points={g.pontos.flatMap((p) => [p.x, p.y])}
-              stroke={emMiraApagar ? COR_APAGAR_HOVER : selecionado ? COR_SELECAO : camada.cor}
+              stroke={emMiraApagar ? COR_APAGAR_HOVER : selecionado ? COR_SELECAO : corCamada}
               strokeWidth={(emMiraApagar || selecionado ? camada.espessuraDaLinha + 0.6 : camada.espessuraDaLinha) / scale}
               hitStrokeWidth={Math.max(10 / scale, 6)}
               dash={dashDaCamada(camada, scale)}
