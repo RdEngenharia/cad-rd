@@ -75,7 +75,7 @@ async function main() {
   // =========================================================================
   console.log("\n=== Parte 1: hover (offsetHover) antes do 1º clique ===");
 
-  await page.locator('button:has-text("Deslocar")').click();
+  await page.locator('button:has-text("Offset")').click();
   await page.waitForTimeout(100);
   const distanciaInputFocado1 = await page.evaluate(() => document.activeElement?.tagName === "INPUT");
   checar("campo de comando focado automaticamente ao entrar em Deslocar (1ª vez)", distanciaInputFocado1);
@@ -242,7 +242,7 @@ async function main() {
 
   // 1º clique em Deslocar: ferramenta muda -> mesmo o código ANTIGO já
   // focava aqui (a dependência `ferramenta` do efeito mudou de valor).
-  await page.locator('button:has-text("Deslocar")').click();
+  await page.locator('button:has-text("Offset")').click();
   await page.waitForTimeout(100);
   const focoNoPrimeiroClique = await page.evaluate(() => document.activeElement?.tagName === "INPUT");
   checar("1º clique em Deslocar foca o campo de comando", focoNoPrimeiroClique);
@@ -260,7 +260,7 @@ async function main() {
   // valor) e offsetDistancia JÁ ERA null (não muda de valor) -- é
   // EXATAMENTE o cenário relatado pelo usuário. Sem `ferramentaAtivacaoSeq`
   // forçando o efeito a rodar de novo, o campo continuaria sem foco aqui.
-  await page.locator('button:has-text("Deslocar")').click();
+  await page.locator('button:has-text("Offset")').click();
   await page.waitForTimeout(100);
   const focoNoSegundoClique = await page.evaluate(() => document.activeElement?.tagName === "INPUT");
   checar(

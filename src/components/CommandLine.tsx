@@ -148,10 +148,10 @@ export function CommandLine() {
 
   // TEXTO multilinha (Iteração 12h): enquanto aguarda o conteúdo do texto
   // (ponto já clicado no canvas), o campo vira um `<textarea>` em vez do
-  // `<input>` de uma linha só -- Enter então insere quebra de linha
-  // nativamente (comportamento padrão do navegador num textarea, ele NÃO
-  // envia o `<form>`), e Ctrl+Enter (ou Cmd+Enter no Mac) confirma/insere
-  // o texto, tratado no handler de teclado do próprio textarea abaixo.
+  // `<input>` de uma linha só. Iteração 43: ENTER sozinho CONFIRMA/insere
+  // (igual a todo outro sub-prompt desta linha de comando), e só
+  // Shift+Enter insere quebra de linha -- tratado no handler de teclado
+  // do próprio textarea abaixo.
   const aguardandoConteudoTexto = ferramenta === "texto" && !!pontoRascunho;
 
   // Comprimento de linha por digitação (Iteração 12k): usado só pra dar
@@ -363,11 +363,15 @@ export function CommandLine() {
 
     // TEXTO: depois que o ponto de inserção já foi clicado (pontoRascunho
     // setado por CanvasStage), o campo vira um `<textarea>` multilinha (ver
-    // JSX abaixo) -- Enter sozinho quebra linha dentro dele, e só
-    // Ctrl+Enter/Cmd+Enter chega a disparar este `handleSubmit` (via
-    // `requestSubmit`), então `bruto` aqui já pode conter `\n`s literais.
-    // Não é interpretado como comando (inclusive se por acaso parecer um,
-    // ex.: digitar "L" aqui vira um texto "L", não a ferramenta Linha).
+    // JSX abaixo). Iteração 43 (pedido do usuário, recorrente: "o botao de
+    // texto precisa aceitar a tecla enter i inserir o nome, atualmente eu
+    // tenho que ir com o mouse no nome inserir") -- ENTER sozinho agora
+    // CONFIRMA/insere direto (igual a todo outro sub-prompt desta mesma
+    // linha de comando -- OFFSET, FILLET), e só Shift+Enter insere quebra
+    // de linha (pro raro caso de nome de ambiente em 2+ linhas). `bruto`
+    // aqui ainda pode conter `\n`s literais nesse caso. Não é interpretado
+    // como comando (inclusive se por acaso parecer um, ex.: digitar "L"
+    // aqui vira um texto "L", não a ferramenta Linha).
     if (ferramenta === "texto" && pontoRascunho) {
       if (!bruto.trim()) {
         pushComando("Texto vazio ignorado. Digite o conteúdo, ou Esc para cancelar.");
@@ -477,7 +481,7 @@ export function CommandLine() {
     if (resultado.ferramenta === "texto") {
       setFerramenta("texto");
       pushComando(
-        "TEXTO: clique no canvas para posicionar (depois digite o conteúdo -- Enter quebra linha, clique em \"✓ Inserir\" ou Ctrl+Enter confirma). [Esc cancela]"
+        "TEXTO: clique no canvas para posicionar (depois digite o conteúdo e Enter para inserir -- Shift+Enter quebra linha). [Esc cancela]"
       );
       return;
     }
@@ -542,44 +546,48 @@ export function CommandLine() {
           {aguardandoComprimentoLinha ? "Comprimento:" : aguardandoDimensoesRetangulo ? "Dimensões:" : "Comando:"}
         </span>
         {aguardandoConteudoTexto ? (
-          // Multilinha (Iteração 12h): Enter dentro de um <textarea> insere
-          // quebra de linha nativamente e NÃO envia o form (diferente de um
-          // <input>) -- por isso Ctrl+Enter/Cmd+Enter é interceptado aqui
-          // pra confirmar o texto explicitamente (`requestSubmit` dispara o
-          // mesmo `handleSubmit` de sempre).
+          // Multilinha (Iteração 12h), comportamento de ENTER revisado na
+          // Iteração 43 (pedido explícito e recorrente do usuário: "o
+          // botao de texto precisa aceitar a tecla enter i inserir o
+          // nome, atualmente eu tenho que ir com o mouse no nome
+          // inserir"). Antes, ENTER sozinho só quebrava linha dentro do
+          // `<textarea>` (comportamento nativo do navegador) e só
+          // Ctrl+Enter/Cmd+Enter confirmava -- inconsistente com TODO
+          // outro sub-prompt desta mesma linha de comando (OFFSET,
+          // FILLET), onde Enter sempre confirma. Agora ENTER sozinho
+          // CONFIRMA (via `requestSubmit`, igual aos outros), e só
+          // Shift+Enter insere quebra de linha de verdade -- convenção já
+          // familiar (mesmo padrão de Slack/WhatsApp/etc.) pro raro caso
+          // de precisar de um nome de ambiente em mais de uma linha.
           <>
             <textarea
               ref={textareaRef}
               value={texto}
               onChange={(e) => setTexto(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   e.currentTarget.form?.requestSubmit();
                 }
+                // Shift+Enter: nenhum preventDefault -- o `<textarea>`
+                // insere a quebra de linha nativamente, como sempre.
               }}
-              placeholder="Digite o texto -- Enter quebra linha, Esc cancela"
+              placeholder="Digite o texto -- Enter insere, Shift+Enter quebra linha, Esc cancela"
               rows={Math.min(6, Math.max(2, texto.split("\n").length))}
               className="flex-1 resize-none bg-transparent font-mono text-[12px] text-slate-50 outline-none placeholder:text-slate-500"
               autoComplete="off"
               spellCheck={false}
             />
-            {/* Botão explícito de confirmar (Iteração 12i): depender só de
-                Ctrl+Enter/Cmd+Enter se mostrou pouco descobrível -- o usuário
-                tinha o hábito de "Enter sempre confirma" de todos os outros
-                sub-prompts desta mesma linha de comando (OFFSET, FILLET) e,
-                ao só apertar Enter aqui (que agora quebra linha), a caixa
-                parecia "não fazer nada", sem indicar que Ctrl+Enter era
-                necessário -- resultado: o texto nunca era inserido de fato
-                (`addGeometria` nunca rodava). Este botão dá um caminho de
-                confirmação óbvio e clicável, sem precisar lembrar do atalho;
-                Ctrl+Enter continua funcionando também, para quem já pegou o
-                jeito. */}
+            {/* Botão explícito de confirmar (Iteração 12i, mantido na 43):
+                caminho clicável equivalente pra quem prefere o mouse --
+                Enter sozinho já faz a mesma coisa agora, então este botão
+                deixou de ser o ÚNICO jeito descobrível de confirmar, mas
+                continua útil/disponível. */}
             <button
               type="button"
               onClick={() => textareaRef.current?.form?.requestSubmit()}
               disabled={!texto.trim()}
-              title="Confirma e insere o texto (atalho: Ctrl+Enter)"
+              title="Confirma e insere o texto (atalho: Enter)"
               className="shrink-0 rounded bg-blue-700 px-2 py-0.5 font-mono text-[11px] font-semibold text-blue-50 hover:bg-blue-600 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
             >
               ✓ Inserir

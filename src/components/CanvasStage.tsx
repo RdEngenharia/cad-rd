@@ -43,6 +43,25 @@ const VIEWPORT_PADRAO: Viewport = { scale: 1, x: 0, y: 0 };
 const MODEL_SCALE_MIN = 0.001;
 const MODEL_SCALE_MAX = 1_000_000;
 
+/**
+ * Iteração 43 -- pedido do usuário: "sobre o comando trim ainda esta dando
+ * erro". Causa raiz: uma vez que o 1º clique da quebra manual (TRIM,
+ * "abrir vão de porta") arma `trimQuebraA` numa aresta, o app ficava
+ * PRESO rastreando SÓ aquela aresta -- se o usuário movesse o mouse pra
+ * cima de OUTRA parede (querendo abrir um vão diferente, ou só cortar
+ * outra aresta pelo TRIM normal) e clicasse lá, o clique continuava sendo
+ * projetado à força na aresta antiga (`aplicarQuebraTrim`), sem NUNCA
+ * reconhecer que o usuário mudou de alvo -- resultava em erro repetido
+ * ("muito próximos"/vão sem sentido) ou, na melhor das hipóteses, o
+ * usuário precisava dar Esc manualmente antes de continuar. Esta
+ * tolerância (pixels de tela, mesmo espírito de `arestaSobCursor`)
+ * define o quão longe o cursor pode se afastar da aresta armada antes do
+ * app CANCELAR a quebra pendente sozinho e voltar a reagir normalmente ao
+ * que está de fato sob o cursor agora (ver `handleMouseMove`/
+ * `handleStageClick`, ramo `trimQuebraA`).
+ */
+const TOLERANCIA_PX_QUEBRA_ATIVA = 24;
+
 function clamp(v: number, min: number, max: number) {
   return Math.min(max, Math.max(min, v));
 }
@@ -157,6 +176,7 @@ export function CanvasStage() {
   const trimQuebraA = useCadStore((s) => s.trimQuebraA);
   const iniciarQuebraTrim = useCadStore((s) => s.iniciarQuebraTrim);
   const aplicarQuebraTrim = useCadStore((s) => s.aplicarQuebraTrim);
+  const cancelarQuebraTrim = useCadStore((s) => s.cancelarQuebraTrim);
   const setTrimQuebraCandidata = useCadStore((s) => s.setTrimQuebraCandidata);
   const setTrimQuebraPreviewB = useCadStore((s) => s.setTrimQuebraPreviewB);
   const offsetAlvoId = useCadStore((s) => s.offsetAlvoId);
@@ -752,19 +772,32 @@ export function CanvasStage() {
         setOsnapAlvo(null);
 
         // Quebra manual (Iteração 39, "abrir vão de porta") já com o
-        // ponto A armado (`trimQuebraA`, 1º clique já feito): não busca
-        // outra aresta -- só projeta o cursor NA MESMA aresta pro preview
-        // ao vivo do vão (2º clique confirma em `handleStageClick`).
+        // ponto A armado (`trimQuebraA`, 1º clique já feito): projeta o
+        // cursor NA MESMA aresta pro preview ao vivo do vão (2º clique
+        // confirma em `handleStageClick`) -- MAS só enquanto o cursor
+        // continuar por perto dessa aresta (`TOLERANCIA_PX_QUEBRA_ATIVA`).
+        // Iteração 43 (bug relatado: "sobre o comando trim ainda esta
+        // dando erro"): antes disso, mesmo o cursor indo pra cima de OUTRA
+        // parede do desenho (querendo abrir um vão diferente, ou fazer um
+        // TRIM normal), o app continuava teimosamente rastreando a aresta
+        // ANTIGA -- o clique nunca reconhecia a mudança de alvo, deixando
+        // o comando "preso". Se o cursor se afastar demais (ou a
+        // geometria alvo tiver sido removida nesse meio-tempo), CANCELA a
+        // quebra pendente sozinho (`cancelarQuebraTrim`) e cai pro TRIM
+        // normal logo abaixo (sem `return`), que já recalcula tudo pro
+        // que está de fato sob o cursor agora -- sem exigir Esc manual.
         if (trimQuebraA) {
           const alvoQuebra = projeto.geometria.find((g) => g.id === trimQuebraA.geometriaId);
           const arestaQuebra = alvoQuebra ? arestasDe(alvoQuebra)[trimQuebraA.indiceAresta] : undefined;
-          if (arestaQuebra) {
+          const distPx = arestaQuebra ? distanciaAoSegmento(mundo, arestaQuebra.p1, arestaQuebra.p2).dist * viewportAtual.scale : Infinity;
+          if (arestaQuebra && distPx <= TOLERANCIA_PX_QUEBRA_ATIVA) {
             const { pontoMaisProximo } = distanciaAoSegmento(mundo, arestaQuebra.p1, arestaQuebra.p2);
             setTrimQuebraPreviewB(pontoMaisProximo);
-          } else {
-            setTrimQuebraPreviewB(null);
+            return;
           }
-          return;
+          cancelarQuebraTrim();
+          // Sem `return` -- continua abaixo pro TRIM normal, que já
+          // recalcula `trimPreview`/`trimQuebraCandidata` pro alvo atual.
         }
 
         // TRIM (Aparar) normal: acha a aresta mais próxima do cursor
@@ -853,6 +886,7 @@ export function CanvasStage() {
       setOsnapAlvo,
       setTrimPreview,
       trimQuebraA,
+      cancelarQuebraTrim,
       setTrimQuebraCandidata,
       setTrimQuebraPreviewB,
       offsetAlvoId,
@@ -1252,9 +1286,26 @@ export function CanvasStage() {
         // `mundo` cru (mesma convenção do TRIM normal, que também não
         // usa OSNAP/snap de grid, ver comentário em `handleMouseMove`).
         if (trimQuebraA) {
-          const resultado = aplicarQuebraTrim(mundo);
-          if (!resultado.ok && resultado.erro) pushComando(resultado.erro);
-          return;
+          // Defesa extra (Iteração 43, mesmo raciocínio de
+          // `handleMouseMove` acima): se por algum motivo este clique
+          // chegou sem um mousemove correspondente já ter cancelado a
+          // quebra pendente longe demais da aresta armada (ex.: clique
+          // sintético, touch), confere de novo aqui antes de aplicar --
+          // nunca projeta às cegas num clique claramente noutra parede.
+          const alvoQuebraClique = projeto.geometria.find((g) => g.id === trimQuebraA.geometriaId);
+          const arestaQuebraClique = alvoQuebraClique ? arestasDe(alvoQuebraClique)[trimQuebraA.indiceAresta] : undefined;
+          const distPxClique = arestaQuebraClique
+            ? distanciaAoSegmento(mundo, arestaQuebraClique.p1, arestaQuebraClique.p2).dist * viewportAtual.scale
+            : Infinity;
+          if (arestaQuebraClique && distPxClique <= TOLERANCIA_PX_QUEBRA_ATIVA) {
+            const resultado = aplicarQuebraTrim(mundo);
+            if (!resultado.ok && resultado.erro) pushComando(resultado.erro);
+            return;
+          }
+          cancelarQuebraTrim();
+          // Sem `return` -- reprocessa este MESMO clique como um clique
+          // novo do TRIM normal, contra o que está de fato sob o cursor
+          // agora (ver bloco `trimPreviewAtual`/`candidataAtual` abaixo).
         }
         const { trimPreview: trimPreviewAtual, trimQuebraCandidata: candidataAtual } = useCadStore.getState();
         if (trimPreviewAtual) {
@@ -1324,6 +1375,7 @@ export function CanvasStage() {
       aplicarTrim,
       trimQuebraA,
       aplicarQuebraTrim,
+      cancelarQuebraTrim,
       iniciarQuebraTrim,
       offsetAlvoId,
       aplicarOffset,

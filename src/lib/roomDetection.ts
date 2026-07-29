@@ -372,10 +372,25 @@ const AREA_MINIMA_LACO_INTERNO_M2 = 0.05;
 function ehResiduoDeParedeDupla(grade: Grade, comp: Int32Array, idAlvo: number, cellSet: Set<number>): boolean {
   const laços = tracarTodosOsLacos(grade, comp, idAlvo, cellSet);
   if (!laços || laços.length < 2) return false;
-  // laços[0] é sempre o maior (laço externo) -- basta o segundo maior já
-  // ser substancial pra confirmar que há um furo de verdade.
-  const areaSegundoLacoM2 = areaAbsPontos(laços[1]) / 1_000_000;
-  return areaSegundoLacoM2 >= AREA_MINIMA_LACO_INTERNO_M2;
+  // laços[0] é sempre o maior (laço externo). Iteração 43 (pedido do
+  // usuário -- planta em "L", com um canto côncavo/reflexo onde 3
+  // trechos de parede dupla se encontram bem perto um do outro -- ainda
+  // dava "sem_nome" mesmo com o fix da Iteração 40): antes só o
+  // laços[1] (2º maior) era conferido, assumindo sempre exatamente 1
+  // furo por faixa. Numa junção complexa (T ou canto em L), a mesma
+  // faixa de parede dupla pode enxergar MAIS de um furo substancial
+  // (ex.: 2 cômodos vizinhos cujos furos ficam ambos dentro da mesma
+  // faixa perto do canto) -- e mesmo quando é só 1 furo "de verdade",
+  // ele pode aparecer fatiado em 2+ laços menores pela própria junção
+  // (nenhum sozinho passando do limiar, mas juntos claramente um furo
+  // real). Generalizado pra: QUALQUER laço interno isolado substancial
+  // OU a SOMA de todos os laços internos substancial -- ambos provam a
+  // mesma coisa (é um anel de parede, não uma sala), só cobrindo mais
+  // formas de a junção fatiar a geometria.
+  const areasLacosInternosM2 = laços.slice(1).map((l) => areaAbsPontos(l) / 1_000_000);
+  const algumLacoSubstancial = areasLacosInternosM2.some((a) => a >= AREA_MINIMA_LACO_INTERNO_M2);
+  const somaLacosSubstancial = areasLacosInternosM2.reduce((soma, a) => soma + a, 0) >= AREA_MINIMA_LACO_INTERNO_M2;
+  return algumLacoSubstancial || somaLacosSubstancial;
 }
 
 /** Remove vértices colineares consecutivos (mesma direção) -- reduz a "escada" do traçado raster a um polígono mais limpo, sem mudar a forma. */

@@ -17,7 +17,12 @@ const FERRAMENTAS: { id: Ferramenta; label: string; atalho: string }[] = [
   // linha de comando (TR/TRIM/APARAR, ver `lib/commands.ts`) continuam
   // os mesmos.
   { id: "aparar", label: "Trim", atalho: "TR" },
-  { id: "deslocar", label: "Deslocar", atalho: "O" },
+  // Iteração 43 -- rótulo trocado de "Deslocar" pra "Offset" (pedido do
+  // usuário: "altere o nome deslocar para offset igual o autocad"), mesmo
+  // espírito das trocas Aparar->Trim (Iteração 41) e Concordância->Fillet
+  // (Iteração 38): só o texto do botão muda -- o id interno
+  // (`id: "deslocar"`) e o atalho "O" continuam os mesmos.
+  { id: "deslocar", label: "Offset", atalho: "O" },
   // Iteração 38 -- rótulo trocado de "Concordância" pra "Fillet" (pedido
   // do usuário: "altere o nome concordancia para fillit igual o
   // autocad"). O identificador interno (`id: "concordancia"`) NÃO mudou
