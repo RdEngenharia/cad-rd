@@ -69,6 +69,7 @@ function LancamentoEletricoResultModal({
   onFechar: () => void;
 }) {
   const { ok, resumo, problemas } = resultado;
+  const irParaLocal = useCadStore((s) => s.irParaLocal);
 
   const ROTULO_PROBLEMA: Record<ProblemaComodo["tipo"], string> = {
     aberta: "Área aberta (parede com vão) -- desenhe uma linha temporária pra fechar e tente de novo (apague a linha depois)",
@@ -106,7 +107,18 @@ function LancamentoEletricoResultModal({
                   <li key={i}>
                     <span className="font-medium">{ROTULO_PROBLEMA[p.tipo]}</span>
                     {p.nomes.length > 0 && <> -- nome(s) envolvido(s): {p.nomes.join(", ")}</>}
-                    <> -- localização aprox. no desenho: ({(p.centroideAprox.x / 1000).toFixed(2)}m, {(p.centroideAprox.y / 1000).toFixed(2)}m)</>
+                    <> -- localização aprox. no desenho: ({(p.centroideAprox.x / 1000).toFixed(2)}m, {(p.centroideAprox.y / 1000).toFixed(2)}m)</>{" "}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        irParaLocal(p.centroideAprox);
+                        onFechar();
+                      }}
+                      title="Troca pro Desenho (Model Space) e centraliza/aproxima a câmera exatamente nesse ponto -- facilita achar uma área ou fragmento de linha pequeno"
+                      className="ml-1 rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 hover:bg-blue-100"
+                    >
+                      🔍 Ir para o local
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -114,7 +126,17 @@ function LancamentoEletricoResultModal({
                 <p className="mt-2 text-[11px] text-slate-500">
                   Dica: o texto do nome do cômodo precisa estar a menos de 1m das paredes selecionadas (o sistema já
                   busca automaticamente textos próximos que não tenham sido clicados/selecionados, mesmo que estejam
-                  fora da seleção). Use a localização acima pra achar a área no desenho.
+                  fora da seleção). Clique em &quot;🔍 Ir para o local&quot; acima pra pular direto pra essa área -- se
+                  não houver mesmo nenhum cômodo ali, o mais comum é um fragmento de linha pequeno que sobrou de um
+                  TRIM mal limpo (ver dica abaixo sobre portas/janelas).
+                </p>
+              )}
+              {problemas.some((p) => p.tipo === "aberta" || p.tipo === "mesclada") && (
+                <p className="mt-2 text-[11px] text-slate-500">
+                  Dica: se essa área &quot;aberta&quot;/&quot;mesclada&quot; é um vão de porta ou janela de verdade
+                  (não um erro de desenho), use o botão &quot;🚪 Divisor de ambiente&quot; (mais abaixo, ao lado deste)
+                  pra desenhar uma linha roxa tracejada cobrindo o vão -- ela fecha o cômodo só pro detector
+                  automático, sem mexer na parede real, e pode ficar oculta na impressão (painel Camadas).
                 </p>
               )}
             </>

@@ -99,6 +99,16 @@ interface Ponto {
   y: number;
 }
 
+/**
+ * Iteração 45 -- camada dedicada do "Divisor de Ambiente" (ver comentário
+ * completo em `CadState.ativarFerramentaDivisorAmbiente`). Roxa e
+ * tracejada por padrão, pra nunca ser confundida com uma parede real no
+ * desenho/impressão -- puramente um auxílio pro detector de cômodos
+ * enxergar o vão de uma porta/janela como fechado.
+ */
+export const CAMADA_DIVISOR_AMBIENTE = "DIVISORIA_AMBIENTE";
+const COR_DIVISOR_AMBIENTE = "#9333ea";
+
 interface CadState {
   projeto: Projeto;
   ferramenta: Ferramenta;
@@ -451,6 +461,20 @@ interface CadState {
   setPranchaViewport: (pranchaId: string, v: Partial<Viewport>) => void;
   /** Iteração 29h -- limpa `enquadramentoPendente` depois que `CanvasStage.tsx` aplica o enquadramento automático (ou decide que não há o que enquadrar). */
   limparEnquadramentoPendente: () => void;
+  /**
+   * Iteração 45 -- "Ir para o local" nos problemas do lançamento elétrico
+   * (`LancamentoEletricoButton.tsx`): o modal de erro já mostrava a
+   * localização aproximada (`centroideAprox`) de cada área "aberta"/
+   * "mesclada"/"sem_nome", mas o usuário tinha que procurar manualmente
+   * essa coordenada no desenho -- inviável pra um resíduo pequeno (ex.:
+   * um fragmento de linha esquecido pelo TRIM, ver comentário no
+   * cabeçalho de `roomDetection.ts`). Troca pro Desenho (Model Space --
+   * onde a geometria de paredes de fato vive, nunca a Prancha, que é só
+   * uma janela somente-leitura) e reaproveita o mesmo mecanismo de
+   * auto-enquadramento dos geradores automáticos (`enquadramentoPendente`
+   * + o `useEffect` em `CanvasStage.tsx`), centrado no ponto informado.
+   */
+  irParaLocal: (centro: Ponto, raioMm?: number) => void;
   setGridSize: (n: number) => void;
   toggleSnap: () => void;
   setUnidadeDesenho: (u: UnidadeDesenho) => void;
@@ -487,6 +511,29 @@ interface CadState {
   alternarVisibilidadeCamada: (nome: string) => void;
   atualizarCamada: (nome: string, patch: Partial<Omit<Camada, "nome">>) => void;
   removerCamada: (nome: string) => void;
+  /**
+   * Iteração 45 -- "Divisor de Ambiente": pedido do usuário (verbatim):
+   * "estou usando retangulos, offset e fillet pra fechar as paredes,
+   * depois uso trim pra abrir portas/janelas -- ai o lançamento automático
+   * dá erro, pensei em... criar um botao com divisor de ambiente, assim
+   * posso fazer as portas normalmente e depois aplicar essa linha, será
+   * uma linha pontilhada e cor roxa". O detector de cômodos
+   * (`roomDetection.ts`) funciona por flood-fill puro: um vão de porta/
+   * janela de verdade DEIXA o cômodo literalmente aberto pro ambiente
+   * vizinho (ou pro exterior) -- não tem como distinguir "aqui passa uma
+   * pessoa" de "aqui a parede simplesmente não existe" só olhando pra
+   * geometria, então SEMPRE vai reportar "aberta"/"mesclada" quando há um
+   * vão de verdade. Em vez de tentar adivinhar (ex.: ler larguras-padrão
+   * de porta), este botão ativa a camada dedicada "DIVISORIA_AMBIENTE"
+   * (roxa, tracejada -- puramente visual/organizacional, nunca confundida
+   * com uma parede real) e troca a ferramenta ativa pra "Linha": o usuário
+   * desenha uma linha reta cobrindo o vão da porta/janela (fecha o cômodo
+   * só pros fins do detector), roda o lançamento automático, e pode depois
+   * ocultar essa camada (ícone 💡 no painel Camadas) antes de imprimir --
+   * sem precisar apagar/redesenhar a linha toda vez, como a alternativa
+   * "linha temporária" já documentada em `roomDetection.ts`.
+   */
+  ativarFerramentaDivisorAmbiente: () => void;
 
   // Calibração de XREF (Scale by Reference) ----------------------------
   iniciarCalibracao: (xrefId: string) => void;
@@ -1438,6 +1485,21 @@ export const useCadStore = create<CadState>((set, get) => {
 
   limparEnquadramentoPendente: () => set({ enquadramentoPendente: null }),
 
+  irParaLocal: (centro, raioMm = 1500) =>
+    set({
+      // Sempre vai pro Desenho -- é lá que a geometria de paredes/textos
+      // realmente existe; uma Prancha ativa só mostraria uma janela de
+      // visualização (e nem sempre enquadrando esse ponto), e não dá pra
+      // selecionar/apagar nada nela (somente-leitura).
+      prenchaAtivaId: null,
+      enquadramentoPendente: {
+        minX: centro.x - raioMm,
+        minY: centro.y - raioMm,
+        maxX: centro.x + raioMm,
+        maxY: centro.y + raioMm,
+      },
+    }),
+
   setGridSize: (n) => set({ gridSize: Math.max(1, n) }),
 
   toggleSnap: () => set((state) => ({ snapAtivo: !state.snapAtivo })),
@@ -1720,6 +1782,20 @@ export const useCadStore = create<CadState>((set, get) => {
         activeLayer: state.activeLayer === nome ? camadaSubstituta : state.activeLayer,
       };
     }),
+
+  ativarFerramentaDivisorAmbiente: () => {
+    const { criarCamada, atualizarCamada, setActiveLayer, setFerramenta, pushComando } = get();
+    criarCamada(CAMADA_DIVISOR_AMBIENTE, COR_DIVISOR_AMBIENTE);
+    // `criarCamada` é no-op se a camada já existir (ex.: reaberta de um
+    // projeto salvo) -- por isso a cor/estilo são garantidos aqui SEMPRE,
+    // via `atualizarCamada`, e não só no momento da criação.
+    atualizarCamada(CAMADA_DIVISOR_AMBIENTE, { cor: COR_DIVISOR_AMBIENTE, estiloLinha: "tracejada" });
+    setActiveLayer(CAMADA_DIVISOR_AMBIENTE);
+    setFerramenta("linha");
+    pushComando(
+      `DIVISOR DE AMBIENTE: camada "${CAMADA_DIVISOR_AMBIENTE}" ativa (roxa/tracejada) -- desenhe uma linha cobrindo o vão da porta/janela pra fechar o cômodo só pro detector automático. Depois, oculte essa camada (💡 no painel Camadas) antes de imprimir/exportar, se não quiser vê-la no desenho final.`
+    );
+  },
 
   // Arma a ferramenta de calibração para um XREF específico. Suporta
   // vários XREFs no projeto: cada calibração mira exatamente um deles.

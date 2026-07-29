@@ -11,6 +11,7 @@ import { DiagramaFvButton } from "./DiagramaFvButton";
 import { SistemaSoloButton } from "./SistemaSoloButton";
 import { CargasEletricasButton } from "./CargasEletricasButton";
 import { LancamentoEletricoButton } from "./LancamentoEletricoButton";
+import { DivisorAmbienteButton } from "./DivisorAmbienteButton";
 
 /**
  * Sidebar
@@ -57,6 +58,9 @@ export function Sidebar() {
         </div>
         <div className="mt-2">
           <CargasEletricasButton />
+        </div>
+        <div className="mt-2">
+          <DivisorAmbienteButton />
         </div>
         <div className="mt-2">
           <LancamentoEletricoButton />

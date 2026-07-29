@@ -203,7 +203,17 @@ function desenharFamiliaDiagonais(
  * `doc.lines` no chamador, mais simples e mais fiel ao que "sólido"
  * significa).
  */
-function desenharPadraoVetorialPdf(doc: jsPDF, hachura: HachuraConfig, pontosAbs: [number, number][]) {
+function desenharPadraoVetorialPdf(
+  doc: jsPDF,
+  hachura: HachuraConfig,
+  pontosAbs: [number, number][],
+  // Iteração 45 -- ver `aplicarEstiloCamada`/`pisoLinhaParaA4`: piso MÍNIMO
+  // (mm, na escala NATIVA em que este PDF está sendo desenhado) do traço
+  // do padrão de hachura. `0.08` (padrão) preserva a exportação nativa de
+  // sempre; o fluxo "Ajustar para A4" passa um valor maior pra compensar a
+  // redução que vem depois (ver `adicionarPranchaAjustadaEmA4`).
+  pisoLinhaMm: number = 0.08
+) {
   if (hachura.tipo === "SOLID" || pontosAbs.length < 3) return;
 
   const [r, g, b] = hexParaRgb(hachura.cor);
@@ -227,7 +237,7 @@ function desenharPadraoVetorialPdf(doc: jsPDF, hachura: HachuraConfig, pontosAbs
 
   doc.setDrawColor(r, g, b);
   doc.setFillColor(r, g, b);
-  doc.setLineWidth(Math.max(0.08, espacamento / 14));
+  doc.setLineWidth(Math.max(pisoLinhaMm, espacamento / 14));
   // O padrão da hachura em si NUNCA sai tracejado, mesmo que a camada da
   // forma preenchida seja "tracejada" (Iteração 12c) -- só o CONTORNO da
   // forma (desenhado por quem chama esta função, com o dash já ativo de
@@ -1069,7 +1079,7 @@ function desenharCarimboPdf(
   doc.setFont("helvetica", "normal"); // restaura o padrão pro resto do documento
 }
 
-function aplicarEstiloCamada(doc: jsPDF, camada: Camada) {
+function aplicarEstiloCamada(doc: jsPDF, camada: Camada, pisoLinhaMm: number = 0.08) {
   const [r, g, b] = hexParaRgb(camada.cor);
   doc.setDrawColor(r, g, b);
   // Também define a cor de PREENCHIMENTO igual à de traço -- blocos com
@@ -1081,7 +1091,24 @@ function aplicarEstiloCamada(doc: jsPDF, camada: Camada) {
   doc.setFillColor(r, g, b);
   // Espessura em px de tela -> mm: heurística simples só para manter a
   // proporção visual entre camadas finas/grossas no PDF final.
-  doc.setLineWidth(Math.max(0.08, camada.espessuraDaLinha * 0.15));
+  //
+  // Iteração 45 -- `pisoLinhaMm` (piso mínimo, default `0.08` = o mesmo
+  // valor de sempre, sem nenhuma mudança de comportamento na exportação
+  // nativa): pedido do usuário ("ao exportar a prancha para A4 e imprimir
+  // a simbologia perdem o padrão"). Causa raiz: o fluxo "Ajustar para A4"
+  // (`adicionarPranchaAjustadaEmA4`) desenha a prancha inteira em tamanho
+  // NATIVO (ex.: A1) e só DEPOIS embute+encolhe essa página pronta numa
+  // A4 física (técnica documentada ali) -- um traço fino que já nascia no
+  // piso de 0.08mm (comum em símbolos elétricos pequenos: tomada,
+  // interruptor, hachuras) encolhe JUNTO com o resto, e numa redução
+  // típica de ~30% (A1 -> A4) vira ~0.024mm -- abaixo do mínimo que
+  // impressoras/leitores de PDF conseguem renderizar de forma confiável,
+  // fazendo o traço sumir ou "quebrar" o padrão visual do símbolo/hachura.
+  // `pisoLinhaParaA4` (mais abaixo) calcula um piso NATIVO maior só para
+  // esse fluxo, alto o bastante pra que, DEPOIS do encolhimento, o traço
+  // final ainda fique num mínimo seguro pra impressão -- sem alterar em
+  // nada a exportação nativa normal (`0.08` continua o padrão).
+  doc.setLineWidth(Math.max(pisoLinhaMm, camada.espessuraDaLinha * 0.15));
   // Estilo do traço (Iteração 12c): o documento usa `unit: "mm"` (ver
   // `exportarPranchaPdf`), então o mesmo array em mm de
   // `PADRAO_TRACEJADO_MM` (compartilhado com o `dash` do Konva no canvas,
@@ -1128,17 +1155,22 @@ function desenharUmaGeometria(
   escalaGeom: number = 1,
   // Fator EXTRA de fonte, por cima de `escalaGeom` -- ver
   // `desenharViewportPdf`/`boostTextoParaA4`.
-  escalaTexto: number = escalaGeom
+  escalaTexto: number = escalaGeom,
+  // Iteração 45 -- ver `aplicarEstiloCamada`/`pisoLinhaParaA4`: piso
+  // mínimo (mm nativos) do traço de qualquer geometria/hachura desenhada
+  // aqui, incluindo blocos (símbolos elétricos). `0.08` preserva a
+  // exportação nativa de sempre.
+  pisoLinhaMm: number = 0.08
 ) {
   if (g.tipo === "linha") {
     if (!dentroDaFolha(g.x1, g.y1) && !dentroDaFolha(g.x2, g.y2)) return;
-    aplicarEstiloCamada(doc, camada);
+    aplicarEstiloCamada(doc, camada, pisoLinhaMm);
     const [x1, y1] = paraFolha(g.x1, g.y1);
     const [x2, y2] = paraFolha(g.x2, g.y2);
     doc.line(x1, y1, x2, y2);
   } else if (g.tipo === "circulo") {
     if (!dentroDaFolha(g.x, g.y)) return;
-    aplicarEstiloCamada(doc, camada);
+    aplicarEstiloCamada(doc, camada, pisoLinhaMm);
     const [cx, cy] = paraFolha(g.x, g.y);
     const raioPapel = g.raio * escalaGeom;
     if (g.hachura?.tipo === "SOLID") {
@@ -1160,12 +1192,12 @@ function desenharUmaGeometria(
           const ang = (i / N) * Math.PI * 2;
           pontosAbs.push([cx + raioPapel * Math.cos(ang), cy + raioPapel * Math.sin(ang)]);
         }
-        desenharPadraoVetorialPdf(doc, g.hachura, pontosAbs);
+        desenharPadraoVetorialPdf(doc, g.hachura, pontosAbs, pisoLinhaMm);
       }
     }
   } else if (g.tipo === "bloco") {
     if (!dentroDaFolha(g.x, g.y)) return;
-    aplicarEstiloCamada(doc, camada);
+    aplicarEstiloCamada(doc, camada, pisoLinhaMm);
     // Blocos (símbolos SVG espelhados) NUNCA saem tracejados, mesmo numa
     // camada "tracejada" -- consistente com o canvas (`BlocoShape.tsx` não
     // recebe/aplica `dash`, ver `Camada.estiloLinha` em lib/types.ts):
@@ -1181,7 +1213,7 @@ function desenharUmaGeometria(
       [g.x + g.largura, g.y + g.altura],
     ];
     if (!cantos.some(([cx, cy]) => dentroDaFolha(cx, cy))) return;
-    aplicarEstiloCamada(doc, camada);
+    aplicarEstiloCamada(doc, camada, pisoLinhaMm);
     // Iteração 16: `tracejado` no próprio retângulo (independente da
     // camada -- ver `RetanguloGeometria.tracejado` em lib/types.ts) tem
     // prioridade sobre o traço da camada, aplicado por cima de
@@ -1197,17 +1229,22 @@ function desenharUmaGeometria(
     } else {
       doc.rect(ax, ay, larguraPapel, alturaPapel, "S");
       if (g.hachura) {
-        desenharPadraoVetorialPdf(doc, g.hachura, [
-          [ax, ay],
-          [ax + larguraPapel, ay],
-          [ax + larguraPapel, ay + alturaPapel],
-          [ax, ay + alturaPapel],
-        ]);
+        desenharPadraoVetorialPdf(
+          doc,
+          g.hachura,
+          [
+            [ax, ay],
+            [ax + larguraPapel, ay],
+            [ax + larguraPapel, ay + alturaPapel],
+            [ax, ay + alturaPapel],
+          ],
+          pisoLinhaMm
+        );
       }
     }
   } else if (g.tipo === "poligono") {
     if (g.pontos.length < 3 || !g.pontos.some((p) => dentroDaFolha(p.x, p.y))) return;
-    aplicarEstiloCamada(doc, camada);
+    aplicarEstiloCamada(doc, camada, pisoLinhaMm);
     const abs = g.pontos.map((p) => paraFolha(p.x, p.y));
     const deltas: [number, number][] = abs.slice(1).map((p, i) => [p[0] - abs[i][0], p[1] - abs[i][1]]);
     if (g.hachura?.tipo === "SOLID") {
@@ -1216,11 +1253,11 @@ function desenharUmaGeometria(
       doc.lines(deltas, abs[0][0], abs[0][1], [1, 1], "FD", true);
     } else {
       doc.lines(deltas, abs[0][0], abs[0][1], [1, 1], "S", true);
-      if (g.hachura) desenharPadraoVetorialPdf(doc, g.hachura, abs);
+      if (g.hachura) desenharPadraoVetorialPdf(doc, g.hachura, abs, pisoLinhaMm);
     }
   } else if (g.tipo === "arco") {
     if (!dentroDaFolha(g.x, g.y)) return; // heurística simples (baseada no centro -- ok para os arcos pequenos que o FILLET gera)
-    aplicarEstiloCamada(doc, camada);
+    aplicarEstiloCamada(doc, camada, pisoLinhaMm);
     // jsPDF não tem uma primitiva de arco nativa -- aproxima com uma
     // polilinha de segmentos curtos amostrados ao longo do arco (técnica
     // padrão, suficientemente precisa visualmente).
@@ -1247,7 +1284,7 @@ function desenharUmaGeometria(
     doc.text(g.conteudo, tx, ty, g.rotacao ? { angle: -g.rotacao } : undefined);
   } else if (g.tipo === "cota") {
     if (!dentroDaFolha(g.x1, g.y1) && !dentroDaFolha(g.x2, g.y2)) return;
-    aplicarEstiloCamada(doc, camada);
+    aplicarEstiloCamada(doc, camada, pisoLinhaMm);
     const { q1, q2 } = linhaDeCota({ x: g.x1, y: g.y1 }, { x: g.x2, y: g.y2 }, { x: g.px, y: g.py });
     const [e1x, e1y] = paraFolha(g.x1, g.y1);
     const [f1x, f1y] = paraFolha(q1.x, q1.y);
@@ -1272,7 +1309,7 @@ function desenharUmaGeometria(
     // PLINE: segmentos unidos, mas ABERTOS (sem fechar entre o último e o
     // primeiro vértice) e nunca preenchidos/hachurados.
     if (g.pontos.length < 2 || !g.pontos.some((p) => dentroDaFolha(p.x, p.y))) return;
-    aplicarEstiloCamada(doc, camada);
+    aplicarEstiloCamada(doc, camada, pisoLinhaMm);
     const abs = g.pontos.map((p) => paraFolha(p.x, p.y));
     const deltas: [number, number][] = abs.slice(1).map((p, i) => [p[0] - abs[i][0], p[1] - abs[i][1]]);
     doc.lines(deltas, abs[0][0], abs[0][1], [1, 1], "S", false);
@@ -1416,7 +1453,12 @@ function desenharViewportPdf(
   // `renderizarPranchaNativaBytes`) pra deixar o texto mais generoso
   // depois da folha inteira ser reduzida pra caber numa A4 física. `1`
   // (padrão) preserva a exportação nativa de sempre.
-  boostTexto: number = 1
+  boostTexto: number = 1,
+  // Iteração 45 -- ver `aplicarEstiloCamada`/`pisoLinhaParaA4`: piso
+  // mínimo (mm nativos) de qualquer traço/hachura desenhado dentro deste
+  // viewport, incluindo símbolos de bloco. `0.08` preserva a exportação
+  // nativa de sempre.
+  pisoLinhaMm: number = 0.08
 ) {
   const [ax, ay] = paraFolha(vp.x, vp.y);
   const modelScale = vp.modelScale || 1;
@@ -1472,7 +1514,7 @@ function desenharViewportPdf(
     if (g.id === vp.id || g.tipo === "viewport") continue;
     const camada = resolverCamada(projeto.camadas, g.camada);
     if (!camada.visible) continue;
-    desenharUmaGeometria(doc, g, camada, paraFolhaModelo, dentroDoModelo, unidade, escalaGeom, escalaTexto);
+    desenharUmaGeometria(doc, g, camada, paraFolhaModelo, dentroDoModelo, unidade, escalaGeom, escalaTexto, pisoLinhaMm);
   }
 
   doc.restoreGraphicsState();
@@ -1522,7 +1564,10 @@ function desenharPaginaPdf(
   unidade: UnidadeDesenho = "mm",
   // Iteração 18: ver `desenharViewportPdf` -- só repassado adiante,
   // `1` em toda exportação nativa normal.
-  boostTexto: number = 1
+  boostTexto: number = 1,
+  // Iteração 45 -- ver `aplicarEstiloCamada`/`pisoLinhaParaA4`: só
+  // repassado adiante, `0.08` em toda exportação nativa normal.
+  pisoLinhaMm: number = 0.08
 ) {
   const folha = dimensoesFolhaOrientada(prancha.formato, prancha.orientacao);
 
@@ -1551,7 +1596,7 @@ function desenharPaginaPdf(
   doc.rect(utilX, utilY, larguraUtil, alturaUtil);
 
   for (const vp of prancha.viewports) {
-    desenharViewportPdf(doc, vp, projeto, paraFolha, imagensXref, unidade, boostTexto);
+    desenharViewportPdf(doc, vp, projeto, paraFolha, imagensXref, unidade, boostTexto, pisoLinhaMm);
   }
 
   desenharCarimboPdf(doc, projeto.carimbo, prancha.formato, offX, offY, prancha.orientacao, boostTexto);
@@ -1649,7 +1694,8 @@ function renderizarPranchaNativaBytes(
   prancha: Prancha,
   imagensXref: Map<string, string>,
   unidade: UnidadeDesenho,
-  boostTexto: number = 1
+  boostTexto: number = 1,
+  pisoLinhaMm: number = 0.08
 ): ArrayBuffer {
   const folha = dimensoesFolhaOrientada(prancha.formato, prancha.orientacao);
   const doc = new jsPDF({
@@ -1657,7 +1703,7 @@ function renderizarPranchaNativaBytes(
     unit: "mm",
     format: [folha.largura, folha.altura],
   });
-  desenharPaginaPdf(doc, projeto, prancha, imagensXref, unidade, boostTexto);
+  desenharPaginaPdf(doc, projeto, prancha, imagensXref, unidade, boostTexto, pisoLinhaMm);
   return doc.output("arraybuffer") as ArrayBuffer;
 }
 
@@ -1702,6 +1748,49 @@ function boostTextoParaA4(fator: number): number {
 }
 
 /**
+ * Iteração 45 -- pedido do usuário: "ao exportar a prancha para A4 e
+ * imprimir a simbologia perdem o padrão". Mesma ideia de `boostTextoParaA4`
+ * (compensar ANTES o que vai encolher DEPOIS), mas para a espessura MÍNIMA
+ * de traço (`aplicarEstiloCamada`/`desenharPadraoVetorialPdf`), não pra
+ * fonte.
+ *
+ * Causa raiz: `adicionarPranchaAjustadaEmA4` desenha a prancha inteira em
+ * tamanho NATIVO (ex.: A1) com o piso de sempre (0.08mm) e só DEPOIS
+ * embute+encolhe essa página pronta pra caber numa A4 física (ver
+ * comentário lá) -- um traço que já nascia bem fino (comum em símbolos
+ * elétricos pequenos: tomada, interruptor, e no padrão de hachura) encolhe
+ * JUNTO com o resto da página. Numa redução típica de A1 -> A4 (~28-32%),
+ * 0.08mm nativos viram ~0.02-0.025mm no papel final -- abaixo do que a
+ * maioria das impressoras/leitores de PDF consegue renderizar de forma
+ * confiável (a experiência prática de impressão sugere ~0.15mm como piso
+ * seguro), fazendo o traço sumir ou o padrão da hachura/símbolo ficar
+ * incompleto/quebrado.
+ *
+ * Em vez de aumentar TODAS as espessuras (o que distorceria a proporção
+ * visual entre camadas finas/grossas que `aplicarEstiloCamada` já
+ * calcula), só o PISO MÍNIMO é recalculado aqui, "generoso o bastante" pra
+ * que, depois de multiplicado pelo mesmo `fator` de encolhimento, o traço
+ * final ainda fique em `PISO_FINAL_SEGURO_MM`. O piso nativo resultante
+ * NUNCA é visto diretamente por ninguém -- só existe de passagem, dentro
+ * da página intermediária em tamanho nativo que é imediatamente embutida
+ * e encolhida pra virar a A4 final (ver `adicionarPranchaAjustadaEmA4`) --
+ * então não há problema em ele ficar visivelmente mais grosso que
+ * `0.08` nesse desenho intermediário: o que importa é só o resultado
+ * FINAL, já reduzido. `PISO_NATIVO_MAX_MM` é só um teto de sanidade bem
+ * generoso (bem acima do que os formatos suportados hoje -- A1 -> A4,
+ * a redução mais agressiva possível, ~32%, precisa) contra um `fator`
+ * anormalmente pequeno se novos formatos maiores forem adicionados no
+ * futuro.
+ */
+function pisoLinhaParaA4(fator: number): number {
+  const PISO_NATIVO_PADRAO_MM = 0.08;
+  const PISO_FINAL_SEGURO_MM = 0.15;
+  const PISO_NATIVO_MAX_MM = 1;
+  if (fator >= 1) return PISO_NATIVO_PADRAO_MM; // prancha já cabe em A4 sem encolher -- nada a compensar.
+  return Math.min(PISO_NATIVO_MAX_MM, Math.max(PISO_NATIVO_PADRAO_MM, PISO_FINAL_SEGURO_MM / fator));
+}
+
+/**
  * Embute a prancha (já renderizada em tamanho nativo) como 1 página nova
  * do documento `outDoc` (pdf-lib), reduzida pra caber numa folha A4 e
  * centralizada, com uma nota de rodapé avisando a % de redução aplicada.
@@ -1715,8 +1804,10 @@ async function adicionarPranchaAjustadaEmA4(
   unidade: UnidadeDesenho
 ) {
   const a4 = folhaA4DeDestino(prancha);
-  const boostTexto = boostTextoParaA4(fatorReducaoParaA4(prancha));
-  const bytesNativos = renderizarPranchaNativaBytes(projeto, prancha, imagensXref, unidade, boostTexto);
+  const fatorReducao = fatorReducaoParaA4(prancha);
+  const boostTexto = boostTextoParaA4(fatorReducao);
+  const pisoLinha = pisoLinhaParaA4(fatorReducao);
+  const bytesNativos = renderizarPranchaNativaBytes(projeto, prancha, imagensXref, unidade, boostTexto, pisoLinha);
   const [paginaEmbutida] = await outDoc.embedPdf(bytesNativos);
 
   const larguraA4Pt = a4.largura * PT_POR_MM;

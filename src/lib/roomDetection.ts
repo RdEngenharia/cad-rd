@@ -393,6 +393,55 @@ function ehResiduoDeParedeDupla(grade: Grade, comp: Int32Array, idAlvo: number, 
   return algumLacoSubstancial || somaLacosSubstancial;
 }
 
+/**
+ * Fator de compacidade clássico (área / perímetro²) abaixo do qual um
+ * componente sem nome é tratado como fresta/sobra de parede, não um
+ * cômodo esquecido -- ver `ehFrestaDeParedeFinaDemais` logo abaixo.
+ * Calibrado com folga generosa: um cômodo/corredor de verdade, mesmo bem
+ * estreito de propósito (ex.: 900mm de largura x 10m de comprimento,
+ * ainda plausível como corredor real com nome), fica em ~0.02 -- mais de
+ * 3x acima deste limiar. Já uma fresta de parede (largura = a folga do
+ * BUFFER_PAREDE_MM, tipicamente poucas dezenas de mm, comprimento
+ * arbitrário) fica tipicamente abaixo de 0.003, uma ordem de grandeza
+ * abaixo. `0.006` fica confortavelmente no meio, sem risco de esconder um
+ * cômodo pequeno de formato normal (mesmo apertado) por engano.
+ */
+const LIMIAR_COMPACIDADE_FRESTA = 0.006;
+
+/**
+ * Detecta o padrão "fresta fina demais pra ser cômodo": um componente sem
+ * nome, fechado, mas GEOMETRICAMENTE muito fino/alongado (baixa
+ * compacidade) -- sinal independente de `ehResiduoDeParedeDupla` (que
+ * exige a MESMA sobra formar um anel com 2+ laços substanciais).
+ *
+ * Bug real encontrado nesta iteração (Iteração 45), via simulação: numa
+ * planta com paredes duplas tanto no perímetro quanto numa divisória
+ * interna, a faixa fina que corre por dentro do perímetro (entre a linha
+ * externa e a "sombra" do buffer da linha interna, bem onde ela encontra
+ * a parede divisória em T) normalmente faz parte do MESMO anel contínuo
+ * que envolve os 2 cômodos vizinhos -- capturado com segurança por
+ * `ehResiduoDeParedeDupla` (2 laços internos = 2 furos = 2 cômodos). Mas
+ * QUALQUER vão nessa mesma parede (uma porta/janela real, mesmo já
+ * corrigida com uma linha reta cobrindo o vão -- ver "Divisor de
+ * Ambiente" em `store.ts#ativarFerramentaDivisorAmbiente` -- ou um
+ * fragmento de linha esquecido de um TRIM mal limpo, relatado pelo
+ * usuário: "algumas linhas não somem com trim [...] às vezes esqueço")
+ * pode CORTAR essa faixa fina bem ali, isolando um pedaço pequeno dela
+ * como seu próprio componente -- sem mais nenhum furo substancial (só 1
+ * laço), escapando do teste de anel e caindo, incorretamente, em
+ * "sem_nome". Reconhecer pela FORMA (fina/alongada, não pela topologia de
+ * furos) cobre esse caso mesmo quando o anel foi quebrado.
+ */
+function ehFrestaDeParedeFinaDemais(grade: Grade, comp: Int32Array, idAlvo: number, cellSet: Set<number>): boolean {
+  const laços = tracarTodosOsLacos(grade, comp, idAlvo, cellSet);
+  if (!laços) return false;
+  const perimetroM = perimetroPoligono(laços[0]) / 1000;
+  if (perimetroM <= 0) return false;
+  const areaM2 = areaAbsPontos(laços[0]) / 1_000_000;
+  const compacidade = areaM2 / (perimetroM * perimetroM);
+  return compacidade < LIMIAR_COMPACIDADE_FRESTA;
+}
+
 /** Remove vértices colineares consecutivos (mesma direção) -- reduz a "escada" do traçado raster a um polígono mais limpo, sem mudar a forma. */
 function simplificarColineares(pontos: Ponto[]): Ponto[] {
   if (pontos.length < 3) return pontos;
@@ -646,8 +695,15 @@ export function detectarComodos(
         // verdade. Bug real reportado pelo usuário: planta com todos os
         // cômodos nomeados e fechados (parede dupla, 14/15cm de tijolo)
         // continuava dando erro de "cômodo sem nome".
+        // Iteração 45 -- segundo filtro, complementar ao de cima: mesmo
+        // quando o anel foi quebrado (ver `ehFrestaDeParedeFinaDemais`),
+        // uma fresta de parede continua reconhecível pela FORMA (fina/
+        // alongada), então também é descartada aqui.
         const cellSet = new Set(componente.celulas.map((c) => c.row * grade.cols + c.col));
-        if (!ehResiduoDeParedeDupla(grade, comp, componente.id, cellSet)) {
+        if (
+          !ehResiduoDeParedeDupla(grade, comp, componente.id, cellSet) &&
+          !ehFrestaDeParedeFinaDemais(grade, comp, componente.id, cellSet)
+        ) {
           problemas.push({ tipo: "sem_nome", nomes: [], centroideAprox: centroCelulas, areaM2Aprox: areaM2Celulas });
         }
       }
