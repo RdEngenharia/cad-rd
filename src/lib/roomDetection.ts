@@ -721,6 +721,68 @@ export function detectarComodos(
 }
 
 /**
+ * Iteração 42 -- mesma detecção acima, mas com o fallback de "textos
+ * próximos não selecionados" que `store.ts#gerarLancamentoEletrico` já
+ * fazia (inline, duplicado). Extraído aqui pra ser reaproveitado também
+ * pelo pré-preenchimento do modal de Dimensionamento de Cargas (pedido do
+ * usuário: "interligue... o botao de lançamento de dimensionamento de
+ * cargas ao selecionar a planta baixa com os circuitos lançados") -- os
+ * DOIS fluxos (lançar tomadas/iluminação E pré-preencher o formulário de
+ * cargas a partir da MESMA seleção) precisam enxergar exatamente os mesmos
+ * cômodos, com a mesma tolerância de busca de texto perto da parede.
+ *
+ * `geometriaSelecionada` é a seleção atual (paredes + nomes já
+ * selecionados); `geometriaCompleta` é o projeto inteiro, usado só pra
+ * buscar textos de nome que estejam perto das paredes selecionadas mas
+ * não tenham sido clicados/incluídos na seleção.
+ */
+export function detectarComodosComFallbackDeTexto(
+  geometriaSelecionada: Geometria[],
+  geometriaCompleta: Geometria[]
+): ResultadoDeteccaoComodos {
+  let deteccao = detectarComodos(geometriaSelecionada);
+
+  if (deteccao.problemas.some((p) => p.tipo === "sem_nome")) {
+    const segmentosParede = extrairSegmentosDeParede(geometriaSelecionada);
+    if (segmentosParede.length > 0) {
+      const MARGEM_TEXTO_PROXIMO_MM = 1000;
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const [a, b] of segmentosParede) {
+        minX = Math.min(minX, a.x, b.x);
+        minY = Math.min(minY, a.y, b.y);
+        maxX = Math.max(maxX, a.x, b.x);
+        maxY = Math.max(maxY, a.y, b.y);
+      }
+      minX -= MARGEM_TEXTO_PROXIMO_MM;
+      minY -= MARGEM_TEXTO_PROXIMO_MM;
+      maxX += MARGEM_TEXTO_PROXIMO_MM;
+      maxY += MARGEM_TEXTO_PROXIMO_MM;
+      const idsJaIncluidos = new Set(geometriaSelecionada.map((g) => g.id));
+      const textosProximosNaoSelecionados = geometriaCompleta.filter(
+        (g): g is TextoGeometria =>
+          g.tipo === "texto" &&
+          !idsJaIncluidos.has(g.id) &&
+          g.x >= minX &&
+          g.x <= maxX &&
+          g.y >= minY &&
+          g.y <= maxY
+      );
+      if (textosProximosNaoSelecionados.length > 0) {
+        const deteccaoTentativa = detectarComodos([...geometriaSelecionada, ...textosProximosNaoSelecionados]);
+        if (deteccaoTentativa.problemas.length < deteccao.problemas.length) {
+          deteccao = deteccaoTentativa;
+        }
+      }
+    }
+  }
+
+  return deteccao;
+}
+
+/**
  * Ângulo de rotação (graus, sentido HORÁRIO, mesma convenção usada em todo
  * o projeto para `BlocoGeometria.rotacao` -- ver `blocks.ts#pontosConexaoMundo`,
  * `pdfExport.ts#desenharBloco`, `dxfExport.ts#desenharBlocoDxf` e

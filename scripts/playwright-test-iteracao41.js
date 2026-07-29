@@ -87,35 +87,52 @@ async function main() {
   await page.getByRole("button", { name: "Apagar", exact: true }).click();
   await page.waitForTimeout(100);
 
+  // Verificação por PIXEL real do canvas (não depende de nenhum binding de
+  // debug -- lê a cor de fato desenhada na tela, igual ao que o usuário
+  // vê). Amostra uma pequena REGIÃO ao redor do ponto (em vez de 1 pixel
+  // exato) pra não perder o traço por causa de antialiasing/arredondamento
+  // de subpixel -- basta QUALQUER pixel vermelho na região.
+  function ehVermelho([r, g, b, a]) {
+    return a > 0 && r > 150 && g < 100 && b < 100;
+  }
+  async function regiaoTemVermelho(sx, sy, raio = 4) {
+    const x0 = Math.round(sx - canvasBox.x - raio);
+    const y0 = Math.round(sy - canvasBox.y - raio);
+    const lado = raio * 2 + 1;
+    const pixels = await page.evaluate(
+      ([x, y, w, h]) => {
+        const canvas = document.querySelectorAll("canvas")[document.querySelectorAll("canvas").length - 1];
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        return ctx ? Array.from(ctx.getImageData(x, y, w, h).data) : [];
+      },
+      [x0, y0, lado, lado]
+    );
+    for (let i = 0; i < pixels.length; i += 4) {
+      if (ehVermelho([pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]])) return true;
+    }
+    return false;
+  }
+
   // Mouse bem longe da linha primeiro -- sem highlight.
-  const idLinhaAlvo = await page.evaluate(() => window.__cadStoreTeste.getState().projeto.geometria[0].id);
   let pLonge = pxDoMundo(0, 0);
   await page.mouse.move(pLonge.sx, pLonge.sy - 300);
   await page.waitForTimeout(150);
   let pSobreLinha = pxDoMundo(3000, 2000);
-  const hoverAntes = await page.evaluate(() => window.__apagarHoverIdTeste);
-  checar("ANTES do hover, nenhuma forma está em mira (highlight não vermelho)", hoverAntes !== idLinhaAlvo, { hoverAntes, idLinhaAlvo });
+  const vermelhoAntes = await regiaoTemVermelho(pSobreLinha.sx, pSobreLinha.sy);
+  checar("ANTES do hover, nenhum pixel vermelho na linha (sem highlight)", !vermelhoAntes);
 
   await page.mouse.move(pSobreLinha.sx, pSobreLinha.sy);
   await page.waitForTimeout(200);
-  const hoverDurante = await page.evaluate(() => window.__apagarHoverIdTeste);
-  checar(
-    "DURANTE o hover (Apagar ativo), a linha entra em mira -- fica VERMELHA (#dc2626)",
-    hoverDurante === idLinhaAlvo,
-    { hoverDurante, idLinhaAlvo }
-  );
+  const vermelhoDurante = await regiaoTemVermelho(pSobreLinha.sx, pSobreLinha.sy);
+  checar("DURANTE o hover (Apagar ativo), a linha fica VERMELHA (#dc2626)", vermelhoDurante);
 
   await page.screenshot({ path: "/tmp/it41-apagar-hover-vermelho.png" });
 
   // Tira o mouse de cima -- o highlight some (destaque não fica "grudado").
   await page.mouse.move(pLonge.sx, pLonge.sy - 300);
   await page.waitForTimeout(200);
-  const hoverDepoisDeSair = await page.evaluate(() => window.__apagarHoverIdTeste);
-  checar(
-    "ao tirar o mouse de cima, o highlight vermelho some (não fica grudado)",
-    hoverDepoisDeSair !== idLinhaAlvo,
-    { hoverDepoisDeSair }
-  );
+  const vermelhoDepoisDeSair = await regiaoTemVermelho(pSobreLinha.sx, pSobreLinha.sy);
+  checar("ao tirar o mouse de cima, o highlight vermelho some (não fica grudado)", !vermelhoDepoisDeSair);
 
   // Clica -- remove a forma inteira de UMA VEZ (nunca "quebra em pedaços").
   await page.mouse.move(pSobreLinha.sx, pSobreLinha.sy);

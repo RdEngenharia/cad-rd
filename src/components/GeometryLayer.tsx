@@ -151,7 +151,6 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
   const ferramenta = useCadStore((s) => s.ferramenta);
   const selecionadoIds = useCadStore((s) => s.selecionadoIds);
   const removeGeometria = useCadStore((s) => s.removeGeometria);
-  const selecionarUnico = useCadStore((s) => s.selecionarUnico);
   const alternarSelecao = useCadStore((s) => s.alternarSelecao);
   const pontoRascunho = useCadStore((s) => s.pontoRascunho);
   const ponteiroMundo = useCadStore((s) => s.ponteiroMundo);
@@ -283,9 +282,22 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
       // ser feita) e saímos sem selecionar ESTA geometria por cima dela.
       e.cancelBubble = true;
       if (e.evt instanceof MouseEvent && e.evt.altKey) return;
-      const shift = e.evt instanceof MouseEvent && e.evt.shiftKey;
-      if (shift) alternarSelecao(id);
-      else selecionarUnico(id);
+      // Iteração 42 (pedido do usuário -- verbatim: "quero ao clicar em
+      // uma linha ou texto ou bloco ele fique selecionado e se eu clicar
+      // em varios itens todos eles vao ficando selecionados, atualmente
+      // se eu clicar em duas linha a primeira sai da selecao e mantem
+      // apenas o ultimo item selecionado"): ANTES, um clique simples
+      // (sem Shift) sempre TROCAVA a seleção inteira por só o item
+      // clicado (`selecionarUnico`) -- só Shift+clique acumulava
+      // (`alternarSelecao`). Agora todo clique num item (com ou sem
+      // Shift) ACUMULA: cada forma clicada entra na seleção, e as já
+      // selecionadas continuam selecionadas. Clicar de novo num item JÁ
+      // selecionado o retira da seleção (comportamento de "alternar" --
+      // forma natural de tirar 1 item sem perder o resto). Clicar em
+      // área vazia do desenho continua limpando a seleção inteira (ver
+      // `CanvasStage.tsx#limparSelecao`), que é como se troca de seleção
+      // "do zero".
+      alternarSelecao(id);
     }
   };
 

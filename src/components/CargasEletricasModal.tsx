@@ -41,6 +41,7 @@ import {
   type TipoAmbiente,
   type TueInput,
 } from "@/lib/cargasEletricas";
+import { quantidadeTomadasNBR } from "@/lib/lancamentoEletrico";
 
 interface CargasEletricasModalProps {
   onFechar: () => void;
@@ -152,17 +153,35 @@ export function CargasEletricasModal({ onFechar }: CargasEletricasModalProps) {
   // Iteração 31 -- última entrada salva junto do projeto: reabrir o modal
   // já preenchido pra só ajustar/acrescentar, sem redigitar tudo.
   const dadosSalvos = useCadStore((s) => s.projeto.dadosCargasEletricas);
+  // Iteração 42 -- pedido do usuário: "interligue... o botao de lançamento
+  // de dimensionamento de cargas ao selecionar a planta baixa com os
+  // circuitos lançados". Quando ainda NÃO existe nenhum dimensionamento
+  // salvo (1ª geração), tenta detectar os cômodos da SELEÇÃO ATUAL (a
+  // mesma "casa" -- paredes + nomes -- já usada no Lançamento Elétrico,
+  // que nunca mexe em `selecionadoIds`) e pré-preenche nome/tipo/área/
+  // quantidade de tomadas de cada ambiente a partir da planta baixa, em
+  // vez dos 4 ambientes de exemplo genéricos. Continua funcionando 100%
+  // manual quando não há planta baixa (projetista que só recebeu
+  // quantidades) -- `detectarComodosParaCargas` devolve `[]` nesse caso,
+  // sem nenhum diálogo/bloqueio, e o formulário cai no exemplo de sempre.
+  const detectarComodosParaCargas = useCadStore((s) => s.detectarComodosParaCargas);
+  const [preenchidoDaPlantaBaixa] = useState(() => !dadosSalvos && detectarComodosParaCargas().length > 0);
 
-  const [ambientes, setAmbientes] = useState<FormAmbiente[]>(() =>
-    dadosSalvos
-      ? dadosParaForm(dadosSalvos)
-      : [
-          novoAmbiente("Sala", "sala", "20", "4", "2"),
-          novoAmbiente("Quarto 1", "quarto", "12", "3", "1"),
-          novoAmbiente("Cozinha", "cozinha", "10", "6", "2"),
-          novoAmbiente("Banheiro", "banheiro", "4", "1", "1"),
-        ]
-  );
+  const [ambientes, setAmbientes] = useState<FormAmbiente[]>(() => {
+    if (dadosSalvos) return dadosParaForm(dadosSalvos);
+    const comodosDaPlanta = detectarComodosParaCargas();
+    if (comodosDaPlanta.length > 0) {
+      return comodosDaPlanta.map((c) =>
+        novoAmbiente(c.nome, c.tipo, paraCampo(c.areaM2), paraCampo(quantidadeTomadasNBR(c.tipo, c.perimetroM)), "1")
+      );
+    }
+    return [
+      novoAmbiente("Sala", "sala", "20", "4", "2"),
+      novoAmbiente("Quarto 1", "quarto", "12", "3", "1"),
+      novoAmbiente("Cozinha", "cozinha", "10", "6", "2"),
+      novoAmbiente("Banheiro", "banheiro", "4", "1", "1"),
+    ];
+  });
 
   const [tensaoFaseV, setTensaoFaseV] = useState(() => (dadosSalvos ? paraCampo(dadosSalvos.config.tensaoFaseV) : "127"));
   const [tensaoEntradaV, setTensaoEntradaV] = useState(() => (dadosSalvos ? paraCampo(dadosSalvos.config.tensaoEntradaV) : "220"));
@@ -341,6 +360,13 @@ export function CargasEletricasModal({ onFechar }: CargasEletricasModalProps) {
               material preliminar e o diagrama unifilar do QDC.
               {dadosSalvos && " Formulário recuperado da última geração -- ajuste só o que precisar."}
             </p>
+            {preenchidoDaPlantaBaixa && (
+              <p className="mt-1 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] text-emerald-700">
+                ✓ Ambientes pré-preenchidos automaticamente a partir da planta baixa selecionada (mesmos cômodos e
+                tomadas do lançamento elétrico já feito) -- confira, ajuste lâmpadas e acrescente equipamentos (TUEs)
+                antes de gerar.
+              </p>
+            )}
           </div>
           <button
             type="button"

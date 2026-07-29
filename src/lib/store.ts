@@ -80,7 +80,7 @@ import { bboxCombinada, caixaContida, caixaEnvolvente, caixasSeCruzam, type Caix
 import { aplicarStretchNaGeometria, aplicarStretchArestaNaGeometria } from "./grips";
 import { getBlockDef } from "./blocks";
 import type { UnidadeDesenho } from "./unidades";
-import { detectarComodos, extrairSegmentosDeParede, type ProblemaComodo } from "./roomDetection";
+import { detectarComodosComFallbackDeTexto, type ComodoDetectado, type ProblemaComodo } from "./roomDetection";
 import {
   gerarPontosEletricos,
   gerarLegendaEletrica,
@@ -723,6 +723,31 @@ interface CadState {
     resumo: ResumoLancamentoEletrico | null;
     problemas: ProblemaComodo[];
   };
+
+  /**
+   * Iteração 42 -- pedido do usuário: "interligue... o botao de
+   * lançamento de dimensionamento de cargas ao selecionar a planta baixa
+   * com os circuitos lançados, assim teremos diagrama unifilar e
+   * multifilar e tabela de cargas vinculados a uma planta baixa". Lê a
+   * SELEÇÃO ATUAL (a mesma "casa" -- paredes + nomes de ambiente -- que o
+   * usuário já usou para o Lançamento Elétrico, ainda selecionada logo
+   * depois porque aquela ação nunca mexe em `selecionadoIds`) e devolve os
+   * cômodos detectados, prontos pra pré-preencher o formulário de
+   * Dimensionamento de Cargas (`CargasEletricasModal.tsx`) -- nome, tipo e
+   * área de cada ambiente já vêm da planta baixa, só os equipamentos de
+   * uso específico (TUE) continuam manuais (não são dedutíveis do
+   * desenho).
+   *
+   * Devolve `[]` (nunca lança erro) sempre que a seleção não permitir
+   * detectar cômodos com segurança -- nenhuma seleção, seleção sem
+   * paredes/nomes, ou qualquer cômodo aberto/mesclado/sem nome (mesma
+   * política "tudo ou nada" do lançamento elétrico, mas aqui SILENCIOSA:
+   * é só um pré-preenchimento best-effort, não uma geração que precise
+   * bloquear e pedir correção -- o projetista que "não tem planta baixa"
+   * continua preenchendo o formulário manualmente do zero, sem nenhum
+   * diálogo de erro no meio do caminho).
+   */
+  detectarComodosParaCargas: () => ComodoDetectado[];
 
   // Viewport / MVIEW + ZOOM WINDOW (Sprint 5) --------------------------------
   /** Entra ("Model Ativo") ou sai (`null`) do foco de pan/zoom de um viewport -- ver `viewportAtivoId`. */
@@ -2965,44 +2990,11 @@ export const useCadStore = create<CadState>((set, get) => {
   // problemas (nunca troca 1 problema por outro).
   gerarLancamentoEletrico: (idsSelecionados) => {
     const geometriaSelecionada = get().projeto.geometria.filter((g) => idsSelecionados.includes(g.id));
-    let deteccao = detectarComodos(geometriaSelecionada);
-
-    if (deteccao.problemas.some((p) => p.tipo === "sem_nome")) {
-      const segmentosParede = extrairSegmentosDeParede(geometriaSelecionada);
-      if (segmentosParede.length > 0) {
-        const MARGEM_TEXTO_PROXIMO_MM = 1000;
-        let minX = Infinity;
-        let minY = Infinity;
-        let maxX = -Infinity;
-        let maxY = -Infinity;
-        for (const [a, b] of segmentosParede) {
-          minX = Math.min(minX, a.x, b.x);
-          minY = Math.min(minY, a.y, b.y);
-          maxX = Math.max(maxX, a.x, b.x);
-          maxY = Math.max(maxY, a.y, b.y);
-        }
-        minX -= MARGEM_TEXTO_PROXIMO_MM;
-        minY -= MARGEM_TEXTO_PROXIMO_MM;
-        maxX += MARGEM_TEXTO_PROXIMO_MM;
-        maxY += MARGEM_TEXTO_PROXIMO_MM;
-        const idsJaIncluidos = new Set(geometriaSelecionada.map((g) => g.id));
-        const textosProximosNaoSelecionados = get().projeto.geometria.filter(
-          (g) =>
-            g.tipo === "texto" &&
-            !idsJaIncluidos.has(g.id) &&
-            g.x >= minX &&
-            g.x <= maxX &&
-            g.y >= minY &&
-            g.y <= maxY
-        );
-        if (textosProximosNaoSelecionados.length > 0) {
-          const deteccaoTentativa = detectarComodos([...geometriaSelecionada, ...textosProximosNaoSelecionados]);
-          if (deteccaoTentativa.problemas.length < deteccao.problemas.length) {
-            deteccao = deteccaoTentativa;
-          }
-        }
-      }
-    }
+    // Iteração 42: lógica de detecção + fallback de texto próximo extraída
+    // pra `roomDetection.ts#detectarComodosComFallbackDeTexto` -- agora
+    // compartilhada com `detectarComodosParaCargas` (pré-preenchimento do
+    // modal de Dimensionamento de Cargas a partir da MESMA seleção).
+    const deteccao = detectarComodosComFallbackDeTexto(geometriaSelecionada, get().projeto.geometria);
 
     // Política "tudo ou nada" (ver comentário na declaração da ação,
     // acima): QUALQUER problema (aberta/mesclada/sem_nome) cancela a
@@ -3054,6 +3046,16 @@ export const useCadStore = create<CadState>((set, get) => {
     });
 
     return { ok: true, resumo, problemas: [] };
+  },
+
+  detectarComodosParaCargas: () => {
+    const idsSelecionados = get().selecionadoIds;
+    if (idsSelecionados.length === 0) return [];
+    const geometriaCompleta = get().projeto.geometria;
+    const geometriaSelecionada = geometriaCompleta.filter((g) => idsSelecionados.includes(g.id));
+    const deteccao = detectarComodosComFallbackDeTexto(geometriaSelecionada, geometriaCompleta);
+    if (deteccao.problemas.length > 0 || deteccao.comodos.length === 0) return [];
+    return deteccao.comodos;
   },
 
   // Viewport / MVIEW + ZOOM WINDOW (Sprint 5) --------------------------------
