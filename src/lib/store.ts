@@ -31,7 +31,6 @@ import type {
   Geometria,
   HachuraConfig,
   HachuraTipo,
-  LinhaGeometria,
   NovaGeometria,
   PoligonoGeometria,
   Prancha,
@@ -61,7 +60,7 @@ import {
 } from "./cargasEletricas";
 import type { Viewport } from "./snap";
 import type { TipoOsnap } from "./osnap";
-import { segmentosDeCorte, type SegmentoCorte } from "./trim";
+import { arestasDe, segmentosDeCorte, todasArestasVisiveis, type SegmentoCorte } from "./trim";
 import {
   distanciaAoSegmento,
   intersecaoRetas,
@@ -202,33 +201,39 @@ interface CadState {
 
   /**
    * TRIM (Aparar): preview ao vivo, recalculado a cada mousemove --
-   * qual linha está sob o cursor, em quais sub-segmentos ela fica
-   * dividida pelas interseções com as demais linhas visíveis, e qual
-   * desses segmentos está "em mira" (o que seria removido num clique
-   * agora). Ver `lib/trim.ts`.
+   * qual ARESTA está sob o cursor (Iteração 40: qualquer geometria com
+   * contorno reto -- "linha" solta OU uma aresta de "retangulo"/
+   * "poligono"/"polilinha", identificada por `geometriaId` +
+   * `indiceAresta` --, não só "linha" como antes; ver `lib/trim.ts`), em
+   * quais sub-segmentos ela fica dividida pelas interseções com as
+   * demais arestas visíveis, e qual desses segmentos está "em mira" (o
+   * que seria removido num clique agora).
    */
-  trimPreview: { linhaId: string; segmentos: SegmentoCorte[]; indiceAlvo: number } | null;
+  trimPreview: { geometriaId: string; indiceAresta: number; segmentos: SegmentoCorte[]; indiceAlvo: number } | null;
 
   /**
    * TRIM (Aparar) -- "quebra manual" (Iteração 39, igual ao BREAK do
    * AutoCAD). Pedido do usuário (verbatim): "estou tentando abrir uma
    * vao de porta em uma planta baixa com o comando de aparar e nao esta
-   * funcionando" -- o Aparar de sempre só corta uma linha nos pontos
-   * onde ela CRUZA outra linha (`segmentosDeCorte`), então uma parede
+   * funcionando" -- o Aparar de sempre só corta uma aresta nos pontos
+   * onde ela CRUZA outra aresta (`segmentosDeCorte`), então uma parede
    * reta sem nenhuma linha cruzando (o caso normal de abrir um vão de
    * porta no meio de uma parede) não tinha como ser cortada. Este fluxo
-   * é ADITIVO -- só entra em ação quando a linha sob o cursor NÃO tem
+   * é ADITIVO -- só entra em ação quando a aresta sob o cursor NÃO tem
    * nenhuma interseção (nada pra `aplicarTrim` de qualquer forma);
    * nunca muda o comportamento já existente de 1 clique corta no cruzamento.
-   * Fluxo: 1º clique na linha sem cruzamento arma `trimQuebraA` (ponto A,
-   * já projetado ON a linha); o preview ao vivo mostra o vão entre A e o
-   * cursor (projetado na MESMA linha); 2º clique confirma e substitui a
-   * linha original por até 2 pedaços (o que sobra de cada lado do vão).
+   * Fluxo: 1º clique na aresta sem cruzamento arma `trimQuebraA` (ponto A,
+   * já projetado ON a aresta); o preview ao vivo mostra o vão entre A e o
+   * cursor (projetado na MESMA aresta); 2º clique confirma e substitui a
+   * aresta original por até 2 pedaços (o que sobra de cada lado do vão).
+   * Iteração 40: `linhaId` virou `geometriaId` + `indiceAresta`, mesma
+   * generalização do `trimPreview` acima -- funciona em qualquer aresta
+   * reta, não só numa "linha" solta.
    */
-  trimQuebraA: { linhaId: string; t: number; ponto: Ponto } | null;
-  /** Antes do 1º clique: linha sob o cursor SEM nenhuma interseção (candidata a "abrir vão"), recalculado a cada mousemove -- alimenta o hover de destaque em `GeometryLayer.tsx`. */
-  trimQuebraCandidata: { linhaId: string; t: number; ponto: Ponto } | null;
-  /** Depois do 1º clique (`trimQuebraA` armado): ponto B ao vivo (projetado na MESMA linha), pro preview do vão antes do 2º clique. */
+  trimQuebraA: { geometriaId: string; indiceAresta: number; t: number; ponto: Ponto } | null;
+  /** Antes do 1º clique: aresta sob o cursor SEM nenhuma interseção (candidata a "abrir vão"), recalculado a cada mousemove -- alimenta o hover de destaque em `GeometryLayer.tsx`. */
+  trimQuebraCandidata: { geometriaId: string; indiceAresta: number; t: number; ponto: Ponto } | null;
+  /** Depois do 1º clique (`trimQuebraA` armado): ponto B ao vivo (projetado na MESMA aresta), pro preview do vão antes do 2º clique. */
   trimQuebraPreviewB: Ponto | null;
 
   /**
@@ -483,7 +488,7 @@ interface CadState {
   aplicarTrim: () => { ok: boolean; erro?: string };
 
   // TRIM (Aparar) -- quebra manual / abrir vão (Iteração 39, ver `trimQuebraA`) --
-  iniciarQuebraTrim: (linhaId: string, t: number, ponto: Ponto) => void;
+  iniciarQuebraTrim: (geometriaId: string, indiceAresta: number, t: number, ponto: Ponto) => void;
   cancelarQuebraTrim: () => void;
   aplicarQuebraTrim: (pontoB: Ponto) => { ok: boolean; erro?: string };
   setTrimQuebraCandidata: (c: CadState["trimQuebraCandidata"]) => void;
@@ -1830,20 +1835,28 @@ export const useCadStore = create<CadState>((set, get) => {
 
   // Confirma o TRIM: recalcula os segmentos de corte NA HORA (em vez de
   // confiar cegamente no preview do último mousemove) e remove o
-  // segmento em mira, substituindo a linha original pelos segmentos
-  // restantes (cada um vira uma nova linha independente). Se não houver
-  // pelo menos 2 segmentos (ou seja, nenhuma interseção real), não há
-  // nada pra aparar -- não faz nada.
+  // segmento em mira. Iteração 40 (pedido do usuário: "aparar só esta
+  // aceitando se for desenho feito apenas com linha [...] preciso que
+  // funcione se for em um retangulo e nao apague o desenho todo"): a
+  // aresta-alvo pode ser uma "linha" solta OU uma aresta de um
+  // "retangulo"/"poligono"/"polilinha" -- nesse caso, só a FORMA-ALVO é
+  // "explodida" em linhas soltas (uma por aresta): as arestas que NÃO
+  // foram cortadas viram linhas idênticas ao original (a forma continua
+  // com a MESMA aparência visual, nada mais do desenho é tocado), e só a
+  // aresta clicada é substituída pelos pedaços que sobram do corte. Se
+  // não houver pelo menos 2 segmentos (ou seja, nenhuma interseção
+  // real), não há nada pra aparar -- não faz nada.
   aplicarTrim: () => {
     const { trimPreview, projeto } = get();
     if (!trimPreview) return { ok: false, erro: "Passe o mouse sobre um segmento antes de clicar." };
-    const linha = projeto.geometria.find((g) => g.id === trimPreview.linhaId);
-    if (!linha || linha.tipo !== "linha") return { ok: false, erro: "A linha alvo não existe mais." };
+    const alvo = projeto.geometria.find((g) => g.id === trimPreview.geometriaId);
+    if (!alvo) return { ok: false, erro: "A linha/aresta alvo não existe mais." };
+    const arestas = arestasDe(alvo);
+    const aresta = arestas[trimPreview.indiceAresta];
+    if (!aresta) return { ok: false, erro: "A aresta alvo não existe mais." };
 
-    const outras = projeto.geometria.filter(
-      (g): g is LinhaGeometria => g.tipo === "linha" && g.id !== linha.id
-    );
-    const segmentosFrescos = segmentosDeCorte(linha, outras);
+    const outras = todasArestasVisiveis(projeto.geometria, projeto.camadas, alvo.id);
+    const segmentosFrescos = segmentosDeCorte(aresta.p1, aresta.p2, outras);
     if (segmentosFrescos.length < 2) {
       return { ok: false, erro: "Essa linha não cruza nenhuma outra -- nada para aparar." };
     }
@@ -1853,21 +1866,26 @@ export const useCadStore = create<CadState>((set, get) => {
     const restantes = segmentosFrescos.filter((_, i) => i !== indice);
     snapshot();
     set((state) => {
-      const semOriginal = state.projeto.geometria.filter((g) => g.id !== linha.id);
-      const novasLinhas: Geometria[] = restantes
+      const semAlvo = state.projeto.geometria.filter((g) => g.id !== alvo.id);
+      const novasLinhas: Geometria[] = [];
+      // Forma FECHADA/polilinha: preserva todas as OUTRAS arestas (não
+      // cortadas) como linhas soltas idênticas ao original -- só uma
+      // "linha" solta não tem mais nada a preservar (arestas.length === 1,
+      // ela mesma É a aresta cortada).
+      if (alvo.tipo !== "linha") {
+        arestas.forEach((a, i) => {
+          if (i === trimPreview.indiceAresta) return;
+          novasLinhas.push({ id: uuidv4(), tipo: "linha", camada: alvo.camada, x1: a.p1.x, y1: a.p1.y, x2: a.p2.x, y2: a.p2.y });
+        });
+      }
+      restantes
         .filter((seg) => Math.hypot(seg.p2.x - seg.p1.x, seg.p2.y - seg.p1.y) > 1e-6)
-        .map((seg) => ({
-          id: uuidv4(),
-          tipo: "linha",
-          camada: linha.camada,
-          x1: seg.p1.x,
-          y1: seg.p1.y,
-          x2: seg.p2.x,
-          y2: seg.p2.y,
-        }));
+        .forEach((seg) => {
+          novasLinhas.push({ id: uuidv4(), tipo: "linha", camada: alvo.camada, x1: seg.p1.x, y1: seg.p1.y, x2: seg.p2.x, y2: seg.p2.y });
+        });
       return {
-        projeto: { ...state.projeto, geometria: [...semOriginal, ...novasLinhas] },
-        selecionadoIds: state.selecionadoIds.filter((sid) => sid !== linha.id),
+        projeto: { ...state.projeto, geometria: [...semAlvo, ...novasLinhas] },
+        selecionadoIds: state.selecionadoIds.filter((sid) => sid !== alvo.id),
         trimPreview: null,
       };
     });
@@ -1879,8 +1897,8 @@ export const useCadStore = create<CadState>((set, get) => {
   // pedido do usuário). `iniciarQuebraTrim` arma o ponto A (1º clique,
   // já projetado na linha por `CanvasStage`); `aplicarQuebraTrim`
   // confirma com o ponto B (2º clique) e corta o vão.
-  iniciarQuebraTrim: (linhaId, t, ponto) =>
-    set({ trimQuebraA: { linhaId, t, ponto }, trimQuebraCandidata: null, trimQuebraPreviewB: null }),
+  iniciarQuebraTrim: (geometriaId, indiceAresta, t, ponto) =>
+    set({ trimQuebraA: { geometriaId, indiceAresta, t, ponto }, trimQuebraCandidata: null, trimQuebraPreviewB: null }),
 
   cancelarQuebraTrim: () => set({ trimQuebraA: null, trimQuebraPreviewB: null }),
 
@@ -1888,16 +1906,23 @@ export const useCadStore = create<CadState>((set, get) => {
 
   setTrimQuebraPreviewB: (p) => set({ trimQuebraPreviewB: p }),
 
+  // Iteração 40: mesma generalização do `aplicarTrim` acima -- a aresta
+  // do vão pode ser uma "linha" solta OU uma aresta de um "retangulo"/
+  // "poligono"/"polilinha" (preserva as demais arestas da forma como
+  // linhas soltas, só a aresta-alvo vira os pedaços que sobram do vão).
   aplicarQuebraTrim: (pontoB) => {
     const { trimQuebraA, projeto } = get();
     if (!trimQuebraA) return { ok: false, erro: "Clique primeiro no ponto inicial do vão." };
-    const linha = projeto.geometria.find((g) => g.id === trimQuebraA.linhaId);
-    if (!linha || linha.tipo !== "linha") return { ok: false, erro: "A linha alvo não existe mais." };
+    const alvo = projeto.geometria.find((g) => g.id === trimQuebraA.geometriaId);
+    if (!alvo) return { ok: false, erro: "A linha/aresta alvo não existe mais." };
+    const arestas = arestasDe(alvo);
+    const aresta = arestas[trimQuebraA.indiceAresta];
+    if (!aresta) return { ok: false, erro: "A aresta alvo não existe mais." };
 
-    // Projeta o ponto B NA MESMA linha (nunca busca outra linha próxima
-    // -- o vão é sempre dentro de uma única linha).
-    const a1 = { x: linha.x1, y: linha.y1 };
-    const a2 = { x: linha.x2, y: linha.y2 };
+    // Projeta o ponto B NA MESMA aresta (nunca busca outra aresta próxima
+    // -- o vão é sempre dentro de uma única aresta).
+    const a1 = aresta.p1;
+    const a2 = aresta.p2;
     const { t: tB } = distanciaAoSegmento(pontoB, a1, a2);
     const tA = trimQuebraA.t;
     const comprimento = Math.hypot(a2.x - a1.x, a2.y - a1.y);
@@ -1915,19 +1940,20 @@ export const useCadStore = create<CadState>((set, get) => {
 
     snapshot();
     set((state) => {
-      const semOriginal = state.projeto.geometria.filter((g) => g.id !== linha.id);
-      const novasLinhas: Geometria[] = pedacos.map((seg) => ({
-        id: uuidv4(),
-        tipo: "linha",
-        camada: linha.camada,
-        x1: seg.p1.x,
-        y1: seg.p1.y,
-        x2: seg.p2.x,
-        y2: seg.p2.y,
-      }));
+      const semAlvo = state.projeto.geometria.filter((g) => g.id !== alvo.id);
+      const novasLinhas: Geometria[] = [];
+      if (alvo.tipo !== "linha") {
+        arestas.forEach((a, i) => {
+          if (i === trimQuebraA.indiceAresta) return;
+          novasLinhas.push({ id: uuidv4(), tipo: "linha", camada: alvo.camada, x1: a.p1.x, y1: a.p1.y, x2: a.p2.x, y2: a.p2.y });
+        });
+      }
+      pedacos.forEach((seg) => {
+        novasLinhas.push({ id: uuidv4(), tipo: "linha", camada: alvo.camada, x1: seg.p1.x, y1: seg.p1.y, x2: seg.p2.x, y2: seg.p2.y });
+      });
       return {
-        projeto: { ...state.projeto, geometria: [...semOriginal, ...novasLinhas] },
-        selecionadoIds: state.selecionadoIds.filter((sid) => sid !== linha.id),
+        projeto: { ...state.projeto, geometria: [...semAlvo, ...novasLinhas] },
+        selecionadoIds: state.selecionadoIds.filter((sid) => sid !== alvo.id),
         trimQuebraA: null,
         trimQuebraPreviewB: null,
       };

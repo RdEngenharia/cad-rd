@@ -127,7 +127,22 @@ export function ToolRuler({ orientacao }: ToolRulerProps) {
             key={f.id}
             type="button"
             disabled={desabilitada}
-            onClick={() => setFerramenta(f.id)}
+            onClick={(e) => {
+              setFerramenta(f.id);
+              // Iteração 40 (pedido do usuário: "a tecla espace deve
+              // funcionar para puchar qualquer ultimo comando") -- sem
+              // isto, o BOTÃO continua com o foco do teclado depois do
+              // clique (comportamento padrão do navegador), e o atalho
+              // de Espaço em `CanvasStage.tsx` deliberadamente NÃO reage
+              // com um <button> focado (pra não disparar junto com o
+              // navegador ativando nativamente o botão focado ao
+              // apertar Espaço) -- na prática isso deixava Espaço "sem
+              // efeito" bem na hora mais comum: logo depois de escolher
+              // uma ferramenta pelo botão, sem ainda ter clicado no
+              // canvas. Tirando o foco do botão aqui, o próximo Espaço
+              // já cai no fluxo normal de "repetir o último comando".
+              e.currentTarget.blur();
+            }}
             title={
               desabilitada
                 ? "Indisponível numa Prancha -- volte pro Desenho pra editar"

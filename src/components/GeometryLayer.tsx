@@ -21,6 +21,7 @@ import { screenToWorld, type Viewport } from "@/lib/snap";
 import type { Camada, Geometria, RetanguloGeometria } from "@/lib/types";
 import { PADRAO_TRACEJADO_MM } from "@/lib/types";
 import { formatarComUnidade, deMm, ROTULO_UNIDADE } from "@/lib/unidades";
+import { arestasDe } from "@/lib/trim";
 
 /**
  * Converte `Camada.estiloLinha` no `dash` que o Konva espera -- `undefined`
@@ -765,11 +766,12 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
           cruzamento de verdade). */}
       {ferramenta === "aparar" && !trimPreview && !trimQuebraA && trimQuebraCandidata && (
         (() => {
-          const linhaCandidata = geometria.find((g) => g.id === trimQuebraCandidata.linhaId);
-          if (!linhaCandidata || linhaCandidata.tipo !== "linha") return null;
+          const alvoCandidata = geometria.find((g) => g.id === trimQuebraCandidata.geometriaId);
+          const arestaCandidata = alvoCandidata ? arestasDe(alvoCandidata)[trimQuebraCandidata.indiceAresta] : undefined;
+          if (!arestaCandidata) return null;
           return (
             <Line
-              points={[linhaCandidata.x1, linhaCandidata.y1, linhaCandidata.x2, linhaCandidata.y2]}
+              points={[arestaCandidata.p1.x, arestaCandidata.p1.y, arestaCandidata.p2.x, arestaCandidata.p2.y]}
               stroke={COR_TRIM_QUEBRA}
               strokeWidth={3 / scale}
               dash={[6 / scale, 4 / scale]}

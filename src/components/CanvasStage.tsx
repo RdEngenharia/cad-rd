@@ -7,10 +7,10 @@ import type { KonvaEventObject } from "konva/lib/Node";
 import { useCadStore } from "@/lib/store";
 import { screenToWorld, distance, type Viewport } from "@/lib/snap";
 import { resolverPontoAlvo } from "@/lib/osnap";
-import { linhaSobCursor, segmentosDeCorte, segmentoNoParametro } from "@/lib/trim";
+import { arestasDe, arestaSobCursor, segmentosDeCorte, segmentoNoParametro, todasArestasVisiveis } from "@/lib/trim";
 import { geometriaSobCursorOffset } from "@/lib/offset";
 import { BLOCO_DRAG_MIME } from "@/lib/blocks";
-import { type LinhaGeometria, type ViewportGeometria, dimensoesFolhaOrientada, type Ferramenta } from "@/lib/types";
+import { type ViewportGeometria, dimensoesFolhaOrientada, type Ferramenta } from "@/lib/types";
 import type { Ponto } from "@/lib/geom";
 import { distanciaAoSegmento } from "@/lib/geom";
 import { GridLayer } from "./GridLayer";
@@ -172,6 +172,8 @@ export function CanvasStage() {
   const desfazer = useCadStore((s) => s.desfazer);
   const refazer = useCadStore((s) => s.refazer);
   const gripAlvo = useCadStore((s) => s.gripAlvo);
+  const filletAlvo1Id = useCadStore((s) => s.filletAlvo1Id);
+  const calibrationMode = useCadStore((s) => s.calibrationMode);
   const aplicarStretch = useCadStore((s) => s.aplicarStretch);
   const adicionarPontoPolilinha = useCadStore((s) => s.adicionarPontoPolilinha);
   const fecharPolilinha = useCadStore((s) => s.fecharPolilinha);
@@ -436,12 +438,31 @@ export function CanvasStage() {
             alvo.tagName === "BUTTON" ||
             alvo.isContentEditable)
         ) &&
-        // Só repete quando NENHUM comando está em andamento (ferramenta
-        // "selecionar" = estado ocioso) -- evita interromper um comando
-        // de vários cliques só porque o usuário apertou Espaço por
-        // engano no meio dele (mesmo espírito de só reagir ao Enter
-        // "vazio" no AutoCAD).
-        ferramenta === "selecionar" &&
+        // Só repete quando NENHUM clique/passo intermediário está em
+        // andamento -- evita interromper um comando de vários cliques só
+        // porque o usuário apertou Espaço por engano no meio dele (mesmo
+        // espírito de só reagir ao Enter "vazio" no AutoCAD). Iteração 40
+        // (pedido do usuário: "a tecla espace deve funcionar para puchar
+        // qualquer ultimo comando"): antes só disparava com
+        // `ferramenta === "selecionar"`, mas ferramentas "pegajosas" (que
+        // não voltam sozinhas pra "selecionar" depois de usadas, ex.:
+        // Aparar, Deslocar antes do 1º clique, Concordância/Fillet antes
+        // do 1º clique) deixavam Espaço travado enquanto o usuário
+        // continuava "dentro" delas -- mesmo sem nenhum clique pendente
+        // de fato. Agora o teste é por ESTADO (nenhum rascunho/clique
+        // intermediário em curso), não pela ferramenta atual: cobre TODOS
+        // os fluxos de vários passos do app (mesma lista de campos que
+        // `cancelarDesenho` reseta no Esc).
+        !pontoRascunho &&
+        !poligonoPontos &&
+        !polilinhaPontos &&
+        !cotaP1 &&
+        !trimQuebraA &&
+        !offsetAlvoId &&
+        !filletAlvo1Id &&
+        !calibrationMode &&
+        !gripAlvo &&
+        !blocoParaCarimbar &&
         ultimoComandoRepetivel &&
         // Guarda contra reativar (por baixo dos panos) uma ferramenta
         // indisponível numa Prancha ativa -- mesma lista que já desabilita
@@ -474,6 +495,16 @@ export function CanvasStage() {
     removerViewportDaPrancha,
     xrefSelecionadoId,
     removeXref,
+    pontoRascunho,
+    poligonoPontos,
+    polilinhaPontos,
+    cotaP1,
+    trimQuebraA,
+    offsetAlvoId,
+    filletAlvo1Id,
+    calibrationMode,
+    gripAlvo,
+    blocoParaCarimbar,
   ]);
 
   const handleWheel = useCallback(
@@ -708,33 +739,27 @@ export function CanvasStage() {
       // selector) para não precisar recriar este callback a cada desenho.
       const { projeto } = useCadStore.getState();
 
-      // TRIM (Aparar): acha a linha mais próxima do cursor (tolerância em
-      // pixels de tela) e recalcula ao vivo em quais sub-segmentos ela fica
-      // dividida pelas interseções com as outras linhas visíveis -- o
-      // segmento sob o cursor fica "em mira" pro próximo clique, confirmado
-      // em `handleStageClick` (`aplicarTrim()`). A Iteração 12q chegou a
-      // compartilhar esse mesmo cálculo com a ferramenta "apagar" também,
-      // mas a 12r reverteu isso a pedido do usuário -- Apagar não corta
-      // mais segmento nenhum (sempre remove o elemento inteiro, ver
-      // GeometryLayer.handleShapeClick), então não precisa mais computar
-      // este preview. Não usa OSNAP/snap de grid aqui: a precisão do TRIM
-      // vem das interseções calculadas, não da posição bruta do cursor.
+      // TRIM (Aparar): acha a ARESTA mais próxima do cursor (tolerância em
+      // pixels de tela -- Iteração 40: qualquer geometria com contorno
+      // reto, não só "linha" solta, ver `lib/trim.ts`) e recalcula ao vivo
+      // em quais sub-segmentos ela fica dividida pelas interseções com as
+      // outras arestas visíveis -- o segmento sob o cursor fica "em mira"
+      // pro próximo clique, confirmado em `handleStageClick`
+      // (`aplicarTrim()`). Não usa OSNAP/snap de grid aqui: a precisão do
+      // TRIM vem das interseções calculadas, não da posição bruta do cursor.
       if (ferramenta === "aparar") {
         setPonteiroMundo(mundo);
         setOsnapAlvo(null);
 
         // Quebra manual (Iteração 39, "abrir vão de porta") já com o
         // ponto A armado (`trimQuebraA`, 1º clique já feito): não busca
-        // outra linha -- só projeta o cursor NA MESMA linha pro preview
+        // outra aresta -- só projeta o cursor NA MESMA aresta pro preview
         // ao vivo do vão (2º clique confirma em `handleStageClick`).
         if (trimQuebraA) {
-          const linhaAlvo = projeto.geometria.find((g) => g.id === trimQuebraA.linhaId);
-          if (linhaAlvo && linhaAlvo.tipo === "linha") {
-            const { pontoMaisProximo } = distanciaAoSegmento(
-              mundo,
-              { x: linhaAlvo.x1, y: linhaAlvo.y1 },
-              { x: linhaAlvo.x2, y: linhaAlvo.y2 }
-            );
+          const alvoQuebra = projeto.geometria.find((g) => g.id === trimQuebraA.geometriaId);
+          const arestaQuebra = alvoQuebra ? arestasDe(alvoQuebra)[trimQuebraA.indiceAresta] : undefined;
+          if (arestaQuebra) {
+            const { pontoMaisProximo } = distanciaAoSegmento(mundo, arestaQuebra.p1, arestaQuebra.p2);
             setTrimQuebraPreviewB(pontoMaisProximo);
           } else {
             setTrimQuebraPreviewB(null);
@@ -742,29 +767,21 @@ export function CanvasStage() {
           return;
         }
 
-        // TRIM (Aparar) normal: acha a linha mais próxima do cursor
+        // TRIM (Aparar) normal: acha a aresta mais próxima do cursor
         // (tolerância em pixels de tela) e recalcula ao vivo em quais
         // sub-segmentos ela fica dividida pelas interseções com as
-        // outras linhas visíveis -- o segmento sob o cursor fica "em
+        // outras arestas visíveis -- o segmento sob o cursor fica "em
         // mira" pro próximo clique, confirmado em `handleStageClick`
-        // (`aplicarTrim()`). A Iteração 12q chegou a compartilhar esse
-        // mesmo cálculo com a ferramenta "apagar" também, mas a 12r
-        // reverteu isso a pedido do usuário -- Apagar não corta mais
-        // segmento nenhum (sempre remove o elemento inteiro, ver
-        // GeometryLayer.handleShapeClick), então não precisa mais
-        // computar este preview. Não usa OSNAP/snap de grid aqui: a
-        // precisão do TRIM vem das interseções calculadas, não da
-        // posição bruta do cursor.
-        const linhas = projeto.geometria.filter((g): g is LinhaGeometria => g.tipo === "linha");
-        const alvo = linhaSobCursor(linhas, projeto.camadas, mundo, viewportAtual);
+        // (`aplicarTrim()`).
+        const alvo = arestaSobCursor(projeto.geometria, projeto.camadas, mundo, viewportAtual);
         if (alvo) {
-          const outras = linhas.filter((l) => l.id !== alvo.linha.id);
-          const segmentos = segmentosDeCorte(alvo.linha, outras);
+          const outras = todasArestasVisiveis(projeto.geometria, projeto.camadas, alvo.geometriaId);
+          const segmentos = segmentosDeCorte(alvo.p1, alvo.p2, outras);
           const indice = segmentoNoParametro(segmentos, alvo.t);
           if (segmentos.length > 1 && indice >= 0) {
-            // Cruza pelo menos 1 outra linha -- comportamento de sempre,
+            // Cruza pelo menos 1 outra aresta -- comportamento de sempre,
             // NÃO alterado: 1 clique corta o sub-segmento em mira.
-            setTrimPreview({ linhaId: alvo.linha.id, segmentos, indiceAlvo: indice });
+            setTrimPreview({ geometriaId: alvo.geometriaId, indiceAresta: alvo.indiceAresta, segmentos, indiceAlvo: indice });
             setTrimQuebraCandidata(null);
           } else {
             // Nada pra cortar por interseção (o caso de uma parede reta
@@ -772,10 +789,10 @@ export function CanvasStage() {
             // "abrir vão" (quebra manual): 1º clique arma o ponto A.
             setTrimPreview(null);
             const ponto = {
-              x: alvo.linha.x1 + (alvo.linha.x2 - alvo.linha.x1) * alvo.t,
-              y: alvo.linha.y1 + (alvo.linha.y2 - alvo.linha.y1) * alvo.t,
+              x: alvo.p1.x + (alvo.p2.x - alvo.p1.x) * alvo.t,
+              y: alvo.p1.y + (alvo.p2.y - alvo.p1.y) * alvo.t,
             };
-            setTrimQuebraCandidata({ linhaId: alvo.linha.id, t: alvo.t, ponto });
+            setTrimQuebraCandidata({ geometriaId: alvo.geometriaId, indiceAresta: alvo.indiceAresta, t: alvo.t, ponto });
           }
         } else {
           setTrimPreview(null);
@@ -1249,10 +1266,10 @@ export function CanvasStage() {
           return;
         }
         if (candidataAtual) {
-          // Linha sem nenhum cruzamento (candidata a "abrir vão", ver
-          // `trimQuebraCandidata`) -- este 1º clique só ARMA o ponto A;
-          // o 2º clique (acima) que de fato corta o vão.
-          iniciarQuebraTrim(candidataAtual.linhaId, candidataAtual.t, candidataAtual.ponto);
+          // Linha/aresta sem nenhum cruzamento (candidata a "abrir vão",
+          // ver `trimQuebraCandidata`) -- este 1º clique só ARMA o ponto
+          // A; o 2º clique (acima) que de fato corta o vão.
+          iniciarQuebraTrim(candidataAtual.geometriaId, candidataAtual.indiceAresta, candidataAtual.t, candidataAtual.ponto);
           pushComando("Vão: clique no 2º ponto (na mesma linha) para confirmar.");
           return;
         }

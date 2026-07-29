@@ -23,7 +23,11 @@ import { BLOCK_LIBRARY, BLOCO_DRAG_MIME, buildFullSvg } from "@/lib/blocks";
  * -----------------------------------------------------------------------
  */
 export function BlockLibraryPanel() {
-  const [aberto, setAberto] = useState(true);
+  // Iteração 40 (pedido do usuário: "biblioteca de blocos já abre aberta
+  // na tela inicial, deixe ele iminimizado") -- começa FECHADA; o usuário
+  // expande clicando no cabeçalho quando precisar (estado ainda por
+  // sessão via `useState`, não persistido entre recarregamentos).
+  const [aberto, setAberto] = useState(false);
   const ferramenta = useCadStore((s) => s.ferramenta);
   const blocoParaCarimbar = useCadStore((s) => s.blocoParaCarimbar);
   const armarCarimbo = useCadStore((s) => s.armarCarimbo);
