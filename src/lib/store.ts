@@ -63,6 +63,7 @@ import type { Viewport } from "./snap";
 import type { TipoOsnap } from "./osnap";
 import { segmentosDeCorte, type SegmentoCorte } from "./trim";
 import {
+  distanciaAoSegmento,
   intersecaoRetas,
   normalizar,
   normalizarAngulo,
@@ -79,7 +80,7 @@ import { bboxCombinada, caixaContida, caixaEnvolvente, caixasSeCruzam, type Caix
 import { aplicarStretchNaGeometria, aplicarStretchArestaNaGeometria } from "./grips";
 import { getBlockDef } from "./blocks";
 import type { UnidadeDesenho } from "./unidades";
-import { detectarComodos, type ProblemaComodo } from "./roomDetection";
+import { detectarComodos, extrairSegmentosDeParede, type ProblemaComodo } from "./roomDetection";
 import {
   gerarPontosEletricos,
   gerarLegendaEletrica,
@@ -110,6 +111,21 @@ interface CadState {
    * distancia nao ativa sozinho".
    */
   ferramentaAtivacaoSeq: number;
+  /**
+   * Iteração 38 -- último comando/ferramenta REAL que o usuário escolheu
+   * (qualquer valor exceto "selecionar", que é só o estado "ocioso"/de
+   * seleção, não um comando em si). Atualizado em `setFerramenta` toda
+   * vez que `f !== "selecionar"`. Usado pela tecla Espaço (ver
+   * `CanvasStage.tsx`) pra repetir o último comando -- igual ao
+   * Enter/Espaço do AutoCAD, que reexecuta o último comando quando
+   * nenhum está em andamento. Pedido do usuário: "configure a tecla
+   * space para repetir o ultimo comando, o ultimo botao, exemplo se usei
+   * cotas ao apertar a tecla space ele seleciona novamente o botao cotas
+   * igual o autocad" -- útil sobretudo pros comandos que voltam sozinhos
+   * pra "selecionar" depois de UM uso (Cota, Texto), já que Linha/
+   * Círculo/Retângulo/Fillet/Deslocar etc. já continuam ativos até Esc.
+   */
+  ultimoComandoRepetivel: Ferramenta | null;
   activeLayer: string;
   blocoParaCarimbar: string | null;
   viewport: Viewport;
@@ -192,6 +208,28 @@ interface CadState {
    * agora). Ver `lib/trim.ts`.
    */
   trimPreview: { linhaId: string; segmentos: SegmentoCorte[]; indiceAlvo: number } | null;
+
+  /**
+   * TRIM (Aparar) -- "quebra manual" (Iteração 39, igual ao BREAK do
+   * AutoCAD). Pedido do usuário (verbatim): "estou tentando abrir uma
+   * vao de porta em uma planta baixa com o comando de aparar e nao esta
+   * funcionando" -- o Aparar de sempre só corta uma linha nos pontos
+   * onde ela CRUZA outra linha (`segmentosDeCorte`), então uma parede
+   * reta sem nenhuma linha cruzando (o caso normal de abrir um vão de
+   * porta no meio de uma parede) não tinha como ser cortada. Este fluxo
+   * é ADITIVO -- só entra em ação quando a linha sob o cursor NÃO tem
+   * nenhuma interseção (nada pra `aplicarTrim` de qualquer forma);
+   * nunca muda o comportamento já existente de 1 clique corta no cruzamento.
+   * Fluxo: 1º clique na linha sem cruzamento arma `trimQuebraA` (ponto A,
+   * já projetado ON a linha); o preview ao vivo mostra o vão entre A e o
+   * cursor (projetado na MESMA linha); 2º clique confirma e substitui a
+   * linha original por até 2 pedaços (o que sobra de cada lado do vão).
+   */
+  trimQuebraA: { linhaId: string; t: number; ponto: Ponto } | null;
+  /** Antes do 1º clique: linha sob o cursor SEM nenhuma interseção (candidata a "abrir vão"), recalculado a cada mousemove -- alimenta o hover de destaque em `GeometryLayer.tsx`. */
+  trimQuebraCandidata: { linhaId: string; t: number; ponto: Ponto } | null;
+  /** Depois do 1º clique (`trimQuebraA` armado): ponto B ao vivo (projetado na MESMA linha), pro preview do vão antes do 2º clique. */
+  trimQuebraPreviewB: Ponto | null;
 
   /**
    * OFFSET (Deslocar): distância informada pelo usuário (mm) e a linha
@@ -443,6 +481,13 @@ interface CadState {
   // TRIM (Aparar) --------------------------------------------------------
   setTrimPreview: (p: CadState["trimPreview"]) => void;
   aplicarTrim: () => { ok: boolean; erro?: string };
+
+  // TRIM (Aparar) -- quebra manual / abrir vão (Iteração 39, ver `trimQuebraA`) --
+  iniciarQuebraTrim: (linhaId: string, t: number, ponto: Ponto) => void;
+  cancelarQuebraTrim: () => void;
+  aplicarQuebraTrim: (pontoB: Ponto) => { ok: boolean; erro?: string };
+  setTrimQuebraCandidata: (c: CadState["trimQuebraCandidata"]) => void;
+  setTrimQuebraPreviewB: (p: Ponto | null) => void;
 
   // OFFSET (Deslocar) ------------------------------------------------------
   setOffsetDistancia: (n: number) => void;
@@ -1141,6 +1186,7 @@ export const useCadStore = create<CadState>((set, get) => {
   projeto: projetoVazio(),
   ferramenta: "selecionar",
   ferramentaAtivacaoSeq: 0,
+  ultimoComandoRepetivel: null,
   activeLayer: "BARRAMENTO",
   blocoParaCarimbar: null,
   viewport: { scale: 1, x: 0, y: 0 },
@@ -1164,6 +1210,9 @@ export const useCadStore = create<CadState>((set, get) => {
   hatchColor: "#334155",
 
   trimPreview: null,
+  trimQuebraA: null,
+  trimQuebraCandidata: null,
+  trimQuebraPreviewB: null,
   offsetDistancia: null,
   offsetAlvoId: null,
   offsetAlvoSegmento: null,
@@ -1213,10 +1262,17 @@ export const useCadStore = create<CadState>((set, get) => {
       // campo de digitar mesmo quando nenhum outro campo do store muda
       // de valor entre um clique e o próximo no mesmo botão.
       ferramentaAtivacaoSeq: state.ferramentaAtivacaoSeq + 1,
+      // Iteração 38 -- "selecionar" é o estado ocioso/de seleção, não um
+      // comando repetível (ver `CadState.ultimoComandoRepetivel`); só
+      // grava quando o usuário escolhe um comando de fato.
+      ...(f !== "selecionar" ? { ultimoComandoRepetivel: f } : {}),
       pontoRascunho: null,
       poligonoPontos: null,
       polilinhaPontos: null,
       trimPreview: null,
+      trimQuebraA: null,
+      trimQuebraCandidata: null,
+      trimQuebraPreviewB: null,
       offsetDistancia: null,
       offsetAlvoId: null,
       offsetAlvoSegmento: null,
@@ -1347,6 +1403,9 @@ export const useCadStore = create<CadState>((set, get) => {
       osnapAlvo: null,
       osnapTipo: null,
       trimPreview: null,
+      trimQuebraA: null,
+      trimQuebraCandidata: null,
+      trimQuebraPreviewB: null,
       offsetDistancia: null,
       offsetAlvoId: null,
       offsetAlvoSegmento: null,
@@ -1810,6 +1869,67 @@ export const useCadStore = create<CadState>((set, get) => {
         projeto: { ...state.projeto, geometria: [...semOriginal, ...novasLinhas] },
         selecionadoIds: state.selecionadoIds.filter((sid) => sid !== linha.id),
         trimPreview: null,
+      };
+    });
+    return { ok: true };
+  },
+
+  // TRIM (Aparar) -- quebra manual / abrir vão (Iteração 39, ver
+  // `trimQuebraA` no cabeçalho da interface pro contexto completo do
+  // pedido do usuário). `iniciarQuebraTrim` arma o ponto A (1º clique,
+  // já projetado na linha por `CanvasStage`); `aplicarQuebraTrim`
+  // confirma com o ponto B (2º clique) e corta o vão.
+  iniciarQuebraTrim: (linhaId, t, ponto) =>
+    set({ trimQuebraA: { linhaId, t, ponto }, trimQuebraCandidata: null, trimQuebraPreviewB: null }),
+
+  cancelarQuebraTrim: () => set({ trimQuebraA: null, trimQuebraPreviewB: null }),
+
+  setTrimQuebraCandidata: (c) => set({ trimQuebraCandidata: c }),
+
+  setTrimQuebraPreviewB: (p) => set({ trimQuebraPreviewB: p }),
+
+  aplicarQuebraTrim: (pontoB) => {
+    const { trimQuebraA, projeto } = get();
+    if (!trimQuebraA) return { ok: false, erro: "Clique primeiro no ponto inicial do vão." };
+    const linha = projeto.geometria.find((g) => g.id === trimQuebraA.linhaId);
+    if (!linha || linha.tipo !== "linha") return { ok: false, erro: "A linha alvo não existe mais." };
+
+    // Projeta o ponto B NA MESMA linha (nunca busca outra linha próxima
+    // -- o vão é sempre dentro de uma única linha).
+    const a1 = { x: linha.x1, y: linha.y1 };
+    const a2 = { x: linha.x2, y: linha.y2 };
+    const { t: tB } = distanciaAoSegmento(pontoB, a1, a2);
+    const tA = trimQuebraA.t;
+    const comprimento = Math.hypot(a2.x - a1.x, a2.y - a1.y);
+    if (comprimento < 1e-6 || Math.abs(tB - tA) * comprimento < 1) {
+      return { ok: false, erro: "Os dois pontos do vão estão muito próximos -- afaste mais o 2º clique." };
+    }
+
+    const tMin = Math.min(tA, tB);
+    const tMax = Math.max(tA, tB);
+    const pontoEm = (t: number): Ponto => ({ x: a1.x + (a2.x - a1.x) * t, y: a1.y + (a2.y - a1.y) * t });
+
+    const pedacos: { p1: Ponto; p2: Ponto }[] = [];
+    if (tMin > 1e-6) pedacos.push({ p1: a1, p2: pontoEm(tMin) });
+    if (tMax < 1 - 1e-6) pedacos.push({ p1: pontoEm(tMax), p2: a2 });
+
+    snapshot();
+    set((state) => {
+      const semOriginal = state.projeto.geometria.filter((g) => g.id !== linha.id);
+      const novasLinhas: Geometria[] = pedacos.map((seg) => ({
+        id: uuidv4(),
+        tipo: "linha",
+        camada: linha.camada,
+        x1: seg.p1.x,
+        y1: seg.p1.y,
+        x2: seg.p2.x,
+        y2: seg.p2.y,
+      }));
+      return {
+        projeto: { ...state.projeto, geometria: [...semOriginal, ...novasLinhas] },
+        selecionadoIds: state.selecionadoIds.filter((sid) => sid !== linha.id),
+        trimQuebraA: null,
+        trimQuebraPreviewB: null,
       };
     });
     return { ok: true };
@@ -2628,9 +2748,73 @@ export const useCadStore = create<CadState>((set, get) => {
 
   // Lançamento automático de tomadas/interruptores/iluminação (Iteração 35
   // -- ver cabeçalho de `lib/roomDetection.ts`/`lib/lancamentoEletrico.ts`) ---
+  //
+  // Iteração 38 (bug reportado pelo usuário -- verbatim: "desenhei um
+  // quarto e um banheiro e o lancamento automatico deu erro dizendo que
+  // existe comodo sem nomes, porem repare no printe que tem nomes nos
+  // dois comodos"): reproduzido via script sintético -- a causa não é o
+  // algoritmo de `detectarComodos` (que lida bem com o cômodo em L com os
+  // 2 textos presentes), e sim a SELEÇÃO estar incompleta: o gerador só
+  // enxerga `idsSelecionados`, então um texto de nome que o usuário vê na
+  // tela mas que não entrou na seleção (esquecido, ou excluído por um
+  // Window-select cuja caixa estimada de texto -- ver `caixaEnvolvente` em
+  // `selection.ts` -- ficou um pouco fora da caixa arrastada) gera
+  // silenciosamente um falso "sem_nome".
+  //
+  // Correção: SÓ QUANDO a 1ª detecção (com a seleção tal como veio)
+  // reporta 1+ problema "sem_nome", tenta uma 2ª detecção incluindo
+  // também qualquer texto do projeto INTEIRO que esteja dentro (ou bem
+  // perto) da bounding box das paredes selecionadas -- e só ADOTA essa
+  // 2ª tentativa se ela for ESTRITAMENTE melhor (menos problemas no
+  // total) que a 1ª. Isso foi desenhado deliberadamente pra nunca
+  // regredir: um teste de regressão pegou que uma versão anterior desta
+  // correção, que sempre incluía textos próximos incondicionalmente,
+  // podia puxar um texto solto/não relacionado (ex.: uma anotação
+  // qualquer perto da casa que não é nome de nenhum cômodo) e criar um
+  // problema NOVO ("mesclada") numa área que já estava correta -- por
+  // isso a 2ª tentativa só roda quando já existe um "sem_nome" de
+  // verdade pra resolver, e só é aceita se realmente reduzir o número de
+  // problemas (nunca troca 1 problema por outro).
   gerarLancamentoEletrico: (idsSelecionados) => {
     const geometriaSelecionada = get().projeto.geometria.filter((g) => idsSelecionados.includes(g.id));
-    const deteccao = detectarComodos(geometriaSelecionada);
+    let deteccao = detectarComodos(geometriaSelecionada);
+
+    if (deteccao.problemas.some((p) => p.tipo === "sem_nome")) {
+      const segmentosParede = extrairSegmentosDeParede(geometriaSelecionada);
+      if (segmentosParede.length > 0) {
+        const MARGEM_TEXTO_PROXIMO_MM = 1000;
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+        for (const [a, b] of segmentosParede) {
+          minX = Math.min(minX, a.x, b.x);
+          minY = Math.min(minY, a.y, b.y);
+          maxX = Math.max(maxX, a.x, b.x);
+          maxY = Math.max(maxY, a.y, b.y);
+        }
+        minX -= MARGEM_TEXTO_PROXIMO_MM;
+        minY -= MARGEM_TEXTO_PROXIMO_MM;
+        maxX += MARGEM_TEXTO_PROXIMO_MM;
+        maxY += MARGEM_TEXTO_PROXIMO_MM;
+        const idsJaIncluidos = new Set(geometriaSelecionada.map((g) => g.id));
+        const textosProximosNaoSelecionados = get().projeto.geometria.filter(
+          (g) =>
+            g.tipo === "texto" &&
+            !idsJaIncluidos.has(g.id) &&
+            g.x >= minX &&
+            g.x <= maxX &&
+            g.y >= minY &&
+            g.y <= maxY
+        );
+        if (textosProximosNaoSelecionados.length > 0) {
+          const deteccaoTentativa = detectarComodos([...geometriaSelecionada, ...textosProximosNaoSelecionados]);
+          if (deteccaoTentativa.problemas.length < deteccao.problemas.length) {
+            deteccao = deteccaoTentativa;
+          }
+        }
+      }
+    }
 
     // Política "tudo ou nada" (ver comentário na declaração da ação,
     // acima): QUALQUER problema (aberta/mesclada/sem_nome) cancela a

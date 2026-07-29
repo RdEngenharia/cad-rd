@@ -55,6 +55,8 @@ const ESCALAS_RAPIDAS = [1, 2, 5, 10, 20, 25, 50, 75, 100, 125, 150, 200, 250, 5
 export function PropertiesPanel() {
   const textoFontSizeAtivo = useCadStore((s) => s.textoFontSizeAtivo);
   const setTextoFontSizeAtivo = useCadStore((s) => s.setTextoFontSizeAtivo);
+  const filletRaio = useCadStore((s) => s.filletRaio);
+  const setFilletRaio = useCadStore((s) => s.setFilletRaio);
   const selecionadoIds = useCadStore((s) => s.selecionadoIds);
   const geometria = useCadStore((s) => s.projeto.geometria);
   const atualizarTexto = useCadStore((s) => s.atualizarTexto);
@@ -242,6 +244,27 @@ export function PropertiesPanel() {
           </div>
         </div>
       )}
+
+      {/* Iteração 38 -- controle SEMPRE visível do raio do FILLET
+          (`filletRaio`, "lembrado" entre usos, mesmo espírito do
+          `textoFontSizeAtivo` acima), pra não depender de o usuário
+          saber que dá pra digitar "R" + um número na linha de comando.
+          0 = canto reto ("em bico"); qualquer valor > 0 arredonda o
+          canto com um arco desse raio no próximo FILLET (tecla F/botão
+          "Fillet"). Pedido do usuário: "quero ter a opcao de fechar um
+          canto de linhas arredondado tambem". */}
+      <label className="mt-3 flex items-center justify-between gap-2 text-[11px] text-slate-600">
+        Raio do canto -- Fillet (mm)
+        <input
+          type="number"
+          min={0}
+          step={10}
+          value={filletRaio}
+          onChange={(e) => setFilletRaio(Number(e.target.value))}
+          className="w-16 rounded border border-slate-200 px-1 py-0.5"
+          title={'0 = canto reto ("em bico"); um valor > 0 arredonda o canto com um arco desse raio no próximo FILLET (clique em duas linhas)'}
+        />
+      </label>
 
       {blocoSelecionado && (
         <div className="mt-2 space-y-1.5 rounded border border-blue-200 bg-blue-50/50 p-1.5">

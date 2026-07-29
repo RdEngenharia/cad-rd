@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useCadStore } from "@/lib/store";
 import { interpretarComando } from "@/lib/commands";
 import { FATOR_POR_UNIDADE, formatarComUnidade, type UnidadeDesenho } from "@/lib/unidades";
+import { NOME_FERRAMENTA } from "./ToolRuler";
 
 /**
  * CommandLine
@@ -271,7 +272,7 @@ export function CommandLine() {
     }
     if (ferramenta === "concordancia" && bruto.trim().toUpperCase() === "R") {
       setFilletAguardandoRaio(true);
-      pushComando(`Novo raio de concordância (em ${unidadeDesenho}, ou com sufixo mm/cm/m):`);
+      pushComando(`Novo raio do FILLET (em ${unidadeDesenho}, ou com sufixo mm/cm/m):`);
       return;
     }
 
@@ -611,7 +612,7 @@ export function CommandLine() {
           </span>
         )}
         <span className="rounded bg-slate-700 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide text-slate-200">
-          {ferramenta}
+          {NOME_FERRAMENTA[ferramenta] ?? ferramenta}
         </span>
       </form>
     </div>

@@ -63,6 +63,13 @@ const COR_CALIBRACAO = "#eab308";
 // ghost/ preview (que já mostra a duplicata em si).
 const COR_OFFSET_HOVER = "#f59e0b";
 
+// TRIM (Aparar) -- quebra manual / "abrir vão" (Iteração 39): azul-céu
+// pro hover da linha candidata (sem nenhum cruzamento, elegível a virar
+// vão -- diferente do vermelho normal do TRIM, que já mostra o segmento
+// que SERIA removido num cruzamento de verdade), e o mesmo tom (mais
+// forte) pro vão em si, entre o ponto A já armado e o ponto B ao vivo.
+const COR_TRIM_QUEBRA = "#0ea5e9";
+
 /** Translada uma cópia "fantasma" de uma geometria por (dx, dy) -- só para preview, nunca persistido. */
 function transladarPreview(g: Geometria, dx: number, dy: number): Geometria {
   switch (g.tipo) {
@@ -137,6 +144,9 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
   const poligonoPontos = useCadStore((s) => s.poligonoPontos);
   const alternarHachura = useCadStore((s) => s.alternarHachura);
   const trimPreview = useCadStore((s) => s.trimPreview);
+  const trimQuebraA = useCadStore((s) => s.trimQuebraA);
+  const trimQuebraCandidata = useCadStore((s) => s.trimQuebraCandidata);
+  const trimQuebraPreviewB = useCadStore((s) => s.trimQuebraPreviewB);
   const unidadeDesenho = useCadStore((s) => s.unidadeDesenho);
   const offsetAlvoId = useCadStore((s) => s.offsetAlvoId);
   const offsetAlvoSegmento = useCadStore((s) => s.offsetAlvoSegmento);
@@ -210,7 +220,7 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
         selecionarAlvo1Fillet(id);
       } else {
         const resultado = aplicarFillet(id);
-        if (!resultado.ok) pushComando(resultado.erro ?? "FILLET: não foi possível concordar essas linhas.");
+        if (!resultado.ok) pushComando(resultado.erro ?? "FILLET: não foi possível concordar essas duas linhas.");
       }
     } else if (ferramenta === "selecionar") {
       // Iteração 27: Alt+clique é o gesto de "selecionar o XREF por baixo
@@ -743,6 +753,53 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
             listening={false}
           />
         ))}
+
+      {/* TRIM (Aparar) -- quebra manual / "abrir vão" (Iteração 39, ver
+          `trimQuebraA`/`trimQuebraCandidata` em `lib/store.ts`), pedido
+          do usuário: "estou tentando abrir uma vao de porta em uma
+          planta baixa com o comando de aparar e nao esta funcionando".
+          FASE 0, ANTES do 1º clique: destaca em azul-céu a linha SEM
+          nenhum cruzamento sob o cursor (candidata a virar um vão) --
+          diferencia visualmente do vermelho do TRIM normal (que já
+          mostra o segmento que seria removido AGORA, no caso de
+          cruzamento de verdade). */}
+      {ferramenta === "aparar" && !trimPreview && !trimQuebraA && trimQuebraCandidata && (
+        (() => {
+          const linhaCandidata = geometria.find((g) => g.id === trimQuebraCandidata.linhaId);
+          if (!linhaCandidata || linhaCandidata.tipo !== "linha") return null;
+          return (
+            <Line
+              points={[linhaCandidata.x1, linhaCandidata.y1, linhaCandidata.x2, linhaCandidata.y2]}
+              stroke={COR_TRIM_QUEBRA}
+              strokeWidth={3 / scale}
+              dash={[6 / scale, 4 / scale]}
+              lineCap="round"
+              listening={false}
+            />
+          );
+        })()
+      )}
+
+      {/* TRIM (Aparar) -- quebra manual, FASE 1, DEPOIS do 1º clique
+          (`trimQuebraA` armado): mostra o ponto A (círculo) e o vão ao
+          vivo até o ponto B (`trimQuebraPreviewB`, projetado na MESMA
+          linha a cada mousemove) -- exatamente o pedaço que será
+          removido ao confirmar com o 2º clique. */}
+      {ferramenta === "aparar" && trimQuebraA && (
+        <>
+          <Circle x={trimQuebraA.ponto.x} y={trimQuebraA.ponto.y} radius={5 / scale} fill={COR_TRIM_QUEBRA} listening={false} />
+          {trimQuebraPreviewB && (
+            <Line
+              points={[trimQuebraA.ponto.x, trimQuebraA.ponto.y, trimQuebraPreviewB.x, trimQuebraPreviewB.y]}
+              stroke={COR_TRIM_QUEBRA}
+              strokeWidth={4 / scale}
+              dash={[3 / scale, 3 / scale]}
+              lineCap="round"
+              listening={false}
+            />
+          )}
+        </>
+      )}
 
       {/* OFFSET (Deslocar) -- FASE 1, ANTES do 1º clique: destaca em
           âmbar a linha/aresta que SERIA escolhida se o usuário clicasse

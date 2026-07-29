@@ -73,7 +73,8 @@ function LancamentoEletricoResultModal({
   const ROTULO_PROBLEMA: Record<ProblemaComodo["tipo"], string> = {
     aberta: "Área aberta (parede com vão) -- desenhe uma linha temporária pra fechar e tente de novo (apague a linha depois)",
     mesclada: "2+ nomes na mesma área conectada -- falta uma parede/divisória entre eles (ou desenhe uma linha temporária)",
-    sem_nome: "Área fechada sem nenhum nome de ambiente -- adicione um texto com o nome do cômodo e tente de novo",
+    sem_nome:
+      "Área fechada sem nenhum nome de ambiente próximo -- adicione (ou aproxime) um texto com o nome do cômodo e tente de novo",
   };
 
   return (
@@ -105,9 +106,17 @@ function LancamentoEletricoResultModal({
                   <li key={i}>
                     <span className="font-medium">{ROTULO_PROBLEMA[p.tipo]}</span>
                     {p.nomes.length > 0 && <> -- nome(s) envolvido(s): {p.nomes.join(", ")}</>}
+                    <> -- localização aprox. no desenho: ({(p.centroideAprox.x / 1000).toFixed(2)}m, {(p.centroideAprox.y / 1000).toFixed(2)}m)</>
                   </li>
                 ))}
               </ul>
+              {problemas.some((p) => p.tipo === "sem_nome") && (
+                <p className="mt-2 text-[11px] text-slate-500">
+                  Dica: o texto do nome do cômodo precisa estar a menos de 1m das paredes selecionadas (o sistema já
+                  busca automaticamente textos próximos que não tenham sido clicados/selecionados, mesmo que estejam
+                  fora da seleção). Use a localização acima pra achar a área no desenho.
+                </p>
+              )}
             </>
           )}
 

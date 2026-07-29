@@ -10,13 +10,16 @@ import { resolverPontoAlvo } from "@/lib/osnap";
 import { linhaSobCursor, segmentosDeCorte, segmentoNoParametro } from "@/lib/trim";
 import { geometriaSobCursorOffset } from "@/lib/offset";
 import { BLOCO_DRAG_MIME } from "@/lib/blocks";
-import { type LinhaGeometria, type ViewportGeometria, dimensoesFolhaOrientada } from "@/lib/types";
+import { type LinhaGeometria, type ViewportGeometria, dimensoesFolhaOrientada, type Ferramenta } from "@/lib/types";
+import type { Ponto } from "@/lib/geom";
+import { distanciaAoSegmento } from "@/lib/geom";
 import { GridLayer } from "./GridLayer";
 import { XrefLayer } from "./XrefLayer";
 import { GeometryLayer } from "./GeometryLayer";
 import { TitleBlockLayer } from "./TitleBlockLayer";
 import { PranchaLayer } from "./PranchaLayer";
 import { VertexContextMenu } from "./VertexContextMenu";
+import { FERRAMENTAS_PERMITIDAS_EM_PRANCHA } from "./ToolRuler";
 
 // Iteração 29c: pedido do usuário ("quando tento ir diminuindo o zoom o
 // cad só esta permitindo até o tamanho da tela, preciso ter a opcao de
@@ -42,6 +45,49 @@ const MODEL_SCALE_MAX = 1_000_000;
 
 function clamp(v: number, min: number, max: number) {
   return Math.min(max, Math.max(min, v));
+}
+
+/**
+ * ORTHO -- ponto de referência (o vértice anterior já cravado) que o 2º+
+ * ponto de Linha/Polígono/Polilinha trava contra, quando ORTHO está
+ * ativo. `null` significa "sem referência ainda" (1º ponto de cada
+ * forma, sempre livre -- ver `aplicarOrtho`).
+ */
+function referenciaOrtho(
+  ferramenta: Ferramenta,
+  pontoRascunho: Ponto | null,
+  poligonoPontos: Ponto[] | null,
+  polilinhaPontos: Ponto[] | null
+): Ponto | null {
+  if (ferramenta === "linha") return pontoRascunho;
+  if (ferramenta === "poligono" && poligonoPontos && poligonoPontos.length > 0) return poligonoPontos[poligonoPontos.length - 1];
+  if (ferramenta === "polilinha" && polilinhaPontos && polilinhaPontos.length > 0) return polilinhaPontos[polilinhaPontos.length - 1];
+  return null;
+}
+
+/**
+ * ORTHO (Iteração 12s, igual ao F8 do AutoCAD; extraído em função
+ * própria na Iteração 39 pra ser reaproveitado tanto no preview ao vivo
+ * -- `handleMouseMove`, que antes NÃO aplicava ORTHO nenhum, deixando a
+ * "borracha" aparecer torta até o clique final "endireitar" -- quanto no
+ * clique que de fato crava o ponto -- `handleStageClick`. Pedido do
+ * usuário que motivou a extração: "ainda esta com problema no comando de
+ * desenhar linha, preciso de uma linha reta para cima,baixo e laterais
+ * sem ela ficar torta... preciso de uma linha perfeita na vertical ou
+ * orizontal e nao existe essa opcao ainda" -- a OPÇÃO (ORTHO) já
+ * existia, mas o preview mostrando a linha torta enquanto o mouse se
+ * move (só ficando reta no instante do clique) dava a impressão de que
+ * ela não funcionava/não existia. Trava no eixo (horizontal OU vertical,
+ * o que tiver maior deslocamento) em relação a `ref` -- o grid ainda
+ * decide a posição ao longo desse eixo, só não deixa o outro eixo se
+ * afastar do alinhamento.
+ */
+function aplicarOrtho(pontoResolvido: Ponto, ref: Ponto | null, ativo: boolean): Ponto {
+  if (!ativo || !ref) return pontoResolvido;
+  const dx = pontoResolvido.x - ref.x;
+  const dy = pontoResolvido.y - ref.y;
+  if (Math.abs(dx) < 1e-9 && Math.abs(dy) < 1e-9) return pontoResolvido;
+  return Math.abs(dx) >= Math.abs(dy) ? { x: pontoResolvido.x, y: ref.y } : { x: ref.x, y: pontoResolvido.y };
 }
 
 /**
@@ -84,7 +130,10 @@ export function CanvasStage() {
   const gridSize = useCadStore((s) => s.gridSize);
   const snapAtivo = useCadStore((s) => s.snapAtivo);
   const orthoAtivo = useCadStore((s) => s.orthoAtivo);
+  const toggleOrtho = useCadStore((s) => s.toggleOrtho);
   const ferramenta = useCadStore((s) => s.ferramenta);
+  const ultimoComandoRepetivel = useCadStore((s) => s.ultimoComandoRepetivel);
+  const setFerramenta = useCadStore((s) => s.setFerramenta);
   const activeLayer = useCadStore((s) => s.activeLayer);
   const blocoParaCarimbar = useCadStore((s) => s.blocoParaCarimbar);
   const pontoRascunho = useCadStore((s) => s.pontoRascunho);
@@ -105,6 +154,11 @@ export function CanvasStage() {
   const fecharPoligono = useCadStore((s) => s.fecharPoligono);
   const setTrimPreview = useCadStore((s) => s.setTrimPreview);
   const aplicarTrim = useCadStore((s) => s.aplicarTrim);
+  const trimQuebraA = useCadStore((s) => s.trimQuebraA);
+  const iniciarQuebraTrim = useCadStore((s) => s.iniciarQuebraTrim);
+  const aplicarQuebraTrim = useCadStore((s) => s.aplicarQuebraTrim);
+  const setTrimQuebraCandidata = useCadStore((s) => s.setTrimQuebraCandidata);
+  const setTrimQuebraPreviewB = useCadStore((s) => s.setTrimQuebraPreviewB);
   const offsetAlvoId = useCadStore((s) => s.offsetAlvoId);
   const aplicarOffset = useCadStore((s) => s.aplicarOffset);
   const setOffsetHover = useCadStore((s) => s.setOffsetHover);
@@ -305,6 +359,16 @@ export function CanvasStage() {
       if (e.key === "Escape") {
         cancelarDesenho();
         fecharMenuVertice();
+      } else if (e.key === "F8") {
+        // ORTHO (Iteração 39): F8 liga/desliga, igual ao AutoCAD de
+        // verdade -- antes só dava pra alternar clicando no botão "ORTHO
+        // ON/OFF" da barra de status, fácil de não notar (o comentário
+        // que já comparava com F8 em `lib/store.ts`/`aplicarOrtho` era
+        // só a METÁFORA, o atalho de teclado em si ainda não existia).
+        // Sempre intercepta (mesmo com foco num input) -- F8 não digita
+        // caractere nenhum, então não há conflito com digitação normal.
+        e.preventDefault();
+        toggleOrtho();
       } else if (e.key === "Enter" && ferramenta === "poligono" && !emCampoDeTexto) {
         e.preventDefault();
         fecharPoligono();
@@ -348,6 +412,44 @@ export function CanvasStage() {
       } else if ((e.key === "v" || e.key === "V") && (e.ctrlKey || e.metaKey) && !emCampoDeTexto) {
         e.preventDefault();
         void colarAoVivo();
+      } else if (
+        e.code === "Space" &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        // Iteração 38 -- Espaço repete o último comando (pedido do
+        // usuário: "configure a tecla space para repetir o ultimo
+        // comando, o ultimo botao, exemplo se usei cotas ao apertar a
+        // tecla space ele seleciona novamente o botao cotas igual o
+        // autocad"), igual ao Enter/Espaço "vazio" do AutoCAD. Exclui
+        // qualquer controle interativo focado (não só INPUT/TEXTAREA
+        // como o resto deste handler -- também BUTTON/SELECT/
+        // contentEditable), porque o navegador já ativa nativamente um
+        // <button> focado ao apertar Espaço -- sem essa exclusão,
+        // clicar um botão qualquer e depois apertar Espaço acionaria os
+        // DOIS comportamentos ao mesmo tempo.
+        !(
+          alvo &&
+          (alvo.tagName === "INPUT" ||
+            alvo.tagName === "TEXTAREA" ||
+            alvo.tagName === "SELECT" ||
+            alvo.tagName === "BUTTON" ||
+            alvo.isContentEditable)
+        ) &&
+        // Só repete quando NENHUM comando está em andamento (ferramenta
+        // "selecionar" = estado ocioso) -- evita interromper um comando
+        // de vários cliques só porque o usuário apertou Espaço por
+        // engano no meio dele (mesmo espírito de só reagir ao Enter
+        // "vazio" no AutoCAD).
+        ferramenta === "selecionar" &&
+        ultimoComandoRepetivel &&
+        // Guarda contra reativar (por baixo dos panos) uma ferramenta
+        // indisponível numa Prancha ativa -- mesma lista que já desabilita
+        // visualmente o botão correspondente em `ToolRuler.tsx`.
+        (!prenchaAtivaId || FERRAMENTAS_PERMITIDAS_EM_PRANCHA.includes(ultimoComandoRepetivel))
+      ) {
+        e.preventDefault();
+        setFerramenta(ultimoComandoRepetivel);
       }
     }
     window.addEventListener("keydown", onKeyDown);
@@ -356,6 +458,9 @@ export function CanvasStage() {
     cancelarDesenho,
     apagarSelecionados,
     ferramenta,
+    ultimoComandoRepetivel,
+    setFerramenta,
+    toggleOrtho,
     fecharPoligono,
     fecharPolilinha,
     desfazer,
@@ -617,15 +722,64 @@ export function CanvasStage() {
       if (ferramenta === "aparar") {
         setPonteiroMundo(mundo);
         setOsnapAlvo(null);
+
+        // Quebra manual (Iteração 39, "abrir vão de porta") já com o
+        // ponto A armado (`trimQuebraA`, 1º clique já feito): não busca
+        // outra linha -- só projeta o cursor NA MESMA linha pro preview
+        // ao vivo do vão (2º clique confirma em `handleStageClick`).
+        if (trimQuebraA) {
+          const linhaAlvo = projeto.geometria.find((g) => g.id === trimQuebraA.linhaId);
+          if (linhaAlvo && linhaAlvo.tipo === "linha") {
+            const { pontoMaisProximo } = distanciaAoSegmento(
+              mundo,
+              { x: linhaAlvo.x1, y: linhaAlvo.y1 },
+              { x: linhaAlvo.x2, y: linhaAlvo.y2 }
+            );
+            setTrimQuebraPreviewB(pontoMaisProximo);
+          } else {
+            setTrimQuebraPreviewB(null);
+          }
+          return;
+        }
+
+        // TRIM (Aparar) normal: acha a linha mais próxima do cursor
+        // (tolerância em pixels de tela) e recalcula ao vivo em quais
+        // sub-segmentos ela fica dividida pelas interseções com as
+        // outras linhas visíveis -- o segmento sob o cursor fica "em
+        // mira" pro próximo clique, confirmado em `handleStageClick`
+        // (`aplicarTrim()`). A Iteração 12q chegou a compartilhar esse
+        // mesmo cálculo com a ferramenta "apagar" também, mas a 12r
+        // reverteu isso a pedido do usuário -- Apagar não corta mais
+        // segmento nenhum (sempre remove o elemento inteiro, ver
+        // GeometryLayer.handleShapeClick), então não precisa mais
+        // computar este preview. Não usa OSNAP/snap de grid aqui: a
+        // precisão do TRIM vem das interseções calculadas, não da
+        // posição bruta do cursor.
         const linhas = projeto.geometria.filter((g): g is LinhaGeometria => g.tipo === "linha");
         const alvo = linhaSobCursor(linhas, projeto.camadas, mundo, viewportAtual);
         if (alvo) {
           const outras = linhas.filter((l) => l.id !== alvo.linha.id);
           const segmentos = segmentosDeCorte(alvo.linha, outras);
           const indice = segmentoNoParametro(segmentos, alvo.t);
-          setTrimPreview(segmentos.length > 1 && indice >= 0 ? { linhaId: alvo.linha.id, segmentos, indiceAlvo: indice } : null);
+          if (segmentos.length > 1 && indice >= 0) {
+            // Cruza pelo menos 1 outra linha -- comportamento de sempre,
+            // NÃO alterado: 1 clique corta o sub-segmento em mira.
+            setTrimPreview({ linhaId: alvo.linha.id, segmentos, indiceAlvo: indice });
+            setTrimQuebraCandidata(null);
+          } else {
+            // Nada pra cortar por interseção (o caso de uma parede reta
+            // sem cruzamento, ex.: vão de porta) -- vira candidata a
+            // "abrir vão" (quebra manual): 1º clique arma o ponto A.
+            setTrimPreview(null);
+            const ponto = {
+              x: alvo.linha.x1 + (alvo.linha.x2 - alvo.linha.x1) * alvo.t,
+              y: alvo.linha.y1 + (alvo.linha.y2 - alvo.linha.y1) * alvo.t,
+            };
+            setTrimQuebraCandidata({ linhaId: alvo.linha.id, t: alvo.t, ponto });
+          }
         } else {
           setTrimPreview(null);
+          setTrimQuebraCandidata(null);
         }
         return;
       }
@@ -648,7 +802,23 @@ export function CanvasStage() {
       }
 
       const resultado = resolverPontoAlvo(pointer, mundo, projeto.geometria, projeto.camadas, viewportAtual, gridSize, snapAtivo);
-      setPonteiroMundo(resultado.ponto);
+      // ORTHO no PREVIEW ao vivo (Iteração 39) -- antes disto, só o
+      // CLIQUE final (`handleStageClick`) aplicava ORTHO; a "borracha"
+      // desenhada em GeometryLayer (que só lê `ponteiroMundo`) ficava
+      // torta enquanto o mouse se movia, só "endireitando" no instante do
+      // clique. Ver `aplicarOrtho`/`referenciaOrtho` no topo do arquivo.
+      const pontoComOrtho = aplicarOrtho(
+        resultado.ponto,
+        referenciaOrtho(ferramenta, pontoRascunho, poligonoPontos, polilinhaPontos),
+        orthoAtivo
+      );
+      setPonteiroMundo(pontoComOrtho);
+      // O alvo de OSNAP (o "ímã" verde/marcador) continua mostrando o
+      // ponto ORIGINAL resolvido (não o ajustado por ORTHO) -- ele indica
+      // ONDE o snap encontrou uma referência (endpoint/midpoint/etc.),
+      // que é uma informação diferente de "onde o próximo ponto vai
+      // cair". Mudar isso teria feito o marcador de OSNAP "pular" para
+      // fora do elemento que ele está de fato referenciando.
       setOsnapAlvo(resultado.tipo ? resultado.ponto : null, resultado.tipo);
     },
     [
@@ -656,11 +826,18 @@ export function CanvasStage() {
       gridSize,
       snapAtivo,
       ferramenta,
+      orthoAtivo,
+      pontoRascunho,
+      poligonoPontos,
+      polilinhaPontos,
       setViewport,
       setPranchaViewport,
       setPonteiroMundo,
       setOsnapAlvo,
       setTrimPreview,
+      trimQuebraA,
+      setTrimQuebraCandidata,
+      setTrimQuebraPreviewB,
       offsetAlvoId,
       setOffsetHover,
       setSelecaoBox,
@@ -759,40 +936,16 @@ export function CanvasStage() {
       const { projeto } = useCadStore.getState();
       const { ponto: pontoResolvido } = resolverPontoAlvo(pointer, mundo, projeto.geometria, projeto.camadas, viewportAtual, gridSize, snapAtivo);
 
-      // ORTHO (Iteração 12s, igual ao F8 do AutoCAD): pedido do usuário --
-      // "se eu fizer um linha reta para cima iniciando do meio de uma
-      // linha horizontal e esse centro nao estiver no mesmo alinhamento
-      // que essas linhas do grid a linha fica torta". Causa raiz: o
-      // PRIMEIRO ponto pode vir de um OSNAP (ex.: Midpoint) que não cai
-      // numa interseção do grid; o SEGUNDO ponto, sem nenhum alvo de
-      // OSNAP por perto, cai de volta no snap de grid -- que arredonda
-      // pro múltiplo de grid mais próximo, DIFERENTE do X (ou Y) do 1º
-      // ponto, torcendo a linha. Com ORTHO ativo, o 2º+ ponto de
-      // Linha/Polígono/Polilinha trava no eixo (horizontal OU vertical,
-      // o que tiver maior deslocamento) em relação ao ponto anterior --
-      // o grid ainda decide a posição ao longo desse eixo, mas não pode
-      // mais "puxar" o outro eixo pra fora do alinhamento. Só entra em
+      // ORTHO (ver `aplicarOrtho`/`referenciaOrtho` no topo do arquivo):
+      // trava o 2º+ ponto de Linha/Polígono/Polilinha no eixo horizontal/
+      // vertical em relação ao ponto anterior, quando ativo. Só entra em
       // jogo quando já existe um ponto de referência (2º+ clique); o 1º
       // ponto de cada forma continua livre, sem eixo nenhum pra travar.
-      const referenciaOrtho =
-        ferramenta === "linha"
-          ? pontoRascunho
-          : ferramenta === "poligono" && poligonoPontos && poligonoPontos.length > 0
-          ? poligonoPontos[poligonoPontos.length - 1]
-          : ferramenta === "polilinha" && polilinhaPontos && polilinhaPontos.length > 0
-          ? polilinhaPontos[polilinhaPontos.length - 1]
-          : null;
-      const ponto =
-        orthoAtivo && referenciaOrtho
-          ? (() => {
-              const dx = pontoResolvido.x - referenciaOrtho.x;
-              const dy = pontoResolvido.y - referenciaOrtho.y;
-              if (Math.abs(dx) < 1e-9 && Math.abs(dy) < 1e-9) return pontoResolvido;
-              return Math.abs(dx) >= Math.abs(dy)
-                ? { x: pontoResolvido.x, y: referenciaOrtho.y }
-                : { x: referenciaOrtho.x, y: pontoResolvido.y };
-            })()
-          : pontoResolvido;
+      const ponto = aplicarOrtho(
+        pontoResolvido,
+        referenciaOrtho(ferramenta, pontoRascunho, poligonoPontos, polilinhaPontos),
+        orthoAtivo
+      );
 
       // STRETCH (grip): a confirmação agora acontece inteiramente em
       // `handleMouseUp` (mousedown no grip arma, mouseup confirma -- um
@@ -1076,8 +1229,34 @@ export function CanvasStage() {
       }
 
       if (ferramenta === "aparar") {
-        const resultado = aplicarTrim();
-        if (!resultado.ok && resultado.erro) pushComando(resultado.erro);
+        // Quebra manual (Iteração 39, "abrir vão de porta"): 2º clique
+        // confirma o vão entre o ponto A (armado no 1º clique) e o ponto
+        // atual, projetado NA MESMA linha (ver `aplicarQuebraTrim`). Usa
+        // `mundo` cru (mesma convenção do TRIM normal, que também não
+        // usa OSNAP/snap de grid, ver comentário em `handleMouseMove`).
+        if (trimQuebraA) {
+          const resultado = aplicarQuebraTrim(mundo);
+          if (!resultado.ok && resultado.erro) pushComando(resultado.erro);
+          return;
+        }
+        const { trimPreview: trimPreviewAtual, trimQuebraCandidata: candidataAtual } = useCadStore.getState();
+        if (trimPreviewAtual) {
+          // Comportamento de sempre, NÃO alterado: a linha sob o cursor
+          // cruza pelo menos 1 outra -- 1 clique corta o sub-segmento em
+          // mira.
+          const resultado = aplicarTrim();
+          if (!resultado.ok && resultado.erro) pushComando(resultado.erro);
+          return;
+        }
+        if (candidataAtual) {
+          // Linha sem nenhum cruzamento (candidata a "abrir vão", ver
+          // `trimQuebraCandidata`) -- este 1º clique só ARMA o ponto A;
+          // o 2º clique (acima) que de fato corta o vão.
+          iniciarQuebraTrim(candidataAtual.linhaId, candidataAtual.t, candidataAtual.ponto);
+          pushComando("Vão: clique no 2º ponto (na mesma linha) para confirmar.");
+          return;
+        }
+        pushComando("Passe o mouse sobre uma linha antes de clicar.");
         return;
       }
 
@@ -1126,6 +1305,9 @@ export function CanvasStage() {
       registrarPontoCalibracao,
       adicionarPontoPoligono,
       aplicarTrim,
+      trimQuebraA,
+      aplicarQuebraTrim,
+      iniciarQuebraTrim,
       offsetAlvoId,
       aplicarOffset,
       pushComando,

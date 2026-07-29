@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useCadStore } from "@/lib/store";
 import { FORMATOS_FOLHA, type FormatoFolha } from "@/lib/types";
 import { deMm, paraMm, ROTULO_UNIDADE, type UnidadeDesenho } from "@/lib/unidades";
+import { NOME_FERRAMENTA } from "./ToolRuler";
 
 const UNIDADES: UnidadeDesenho[] = ["mm", "cm", "m"];
 
@@ -212,7 +213,7 @@ export function StatusBar() {
       </div>
       <div className="flex items-center gap-3">
         <span className="uppercase text-slate-400">
-          Ferramenta: <b className="text-slate-600">{ferramenta}</b>
+          Ferramenta: <b className="text-slate-600">{NOME_FERRAMENTA[ferramenta] ?? ferramenta}</b>
         </span>
         <label className="flex items-center gap-1">
           <span>Grid</span>

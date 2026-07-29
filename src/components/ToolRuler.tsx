@@ -12,7 +12,14 @@ const FERRAMENTAS: { id: Ferramenta; label: string; atalho: string }[] = [
   { id: "polilinha", label: "Polilinha", atalho: "PL" },
   { id: "aparar", label: "Aparar", atalho: "TR" },
   { id: "deslocar", label: "Deslocar", atalho: "O" },
-  { id: "concordancia", label: "Concordância", atalho: "F" },
+  // Iteração 38 -- rótulo trocado de "Concordância" pra "Fillet" (pedido
+  // do usuário: "altere o nome concordancia para fillit igual o
+  // autocad"). O identificador interno (`id: "concordancia"`) NÃO mudou
+  // -- é só o texto visível no botão; a linha de comando já aceita
+  // digitar "FILLET" como sinônimo de "F" (ver `lib/commands.ts`), e as
+  // mensagens ecoadas já usavam a palavra "FILLET" antes mesmo desta
+  // troca.
+  { id: "concordancia", label: "Fillet", atalho: "F" },
   { id: "mover", label: "Mover", atalho: "M" },
   { id: "copiar", label: "Copiar", atalho: "CO" },
   { id: "hachurar", label: "Hachurar", atalho: "H" },
@@ -24,15 +31,39 @@ const FERRAMENTAS: { id: Ferramenta; label: string; atalho: string }[] = [
   { id: "apagar", label: "Apagar", atalho: "E/DEL" },
 ];
 
+/**
+ * Iteração 38 -- rótulo amigável de cada ferramenta, derivado do MESMO
+ * `FERRAMENTAS` acima (fonte única) -- exportado pra `StatusBar.tsx` e
+ * `CommandLine.tsx` mostrarem o NOME (ex.: "Fillet") em vez do
+ * identificador interno cru (`ferramenta`, ex.: "concordancia") no
+ * rodapé/barra de status. Sem isso, renomear só o botão deixava
+ * "CONCORDANCIA" aparecendo ainda em 2 outros lugares da tela (a régua
+ * de ferramentas foi corrigida, mas o resto não). `Partial` porque
+ * "carimbar"/"calibrar" não têm botão próprio na régua (são armados
+ * programaticamente) -- quem usa faz fallback pro id cru nesse caso.
+ */
+export const NOME_FERRAMENTA: Partial<Record<Ferramenta, string>> = FERRAMENTAS.reduce(
+  (acc, f) => ({ ...acc, [f.id]: f.label }),
+  {} as Partial<Record<Ferramenta, string>>
+);
+
 const DICAS: Partial<Record<Ferramenta, string>> = {
   mover: " (requer seleção prévia)",
   copiar: " (requer seleção prévia)",
   poligono: " (clique crava vértices; Enter fecha, Esc cancela)",
   polilinha: " (clique crava vértices; Enter conclui ABERTA, Esc cancela)",
   hachurar: " (clique numa forma fechada para aplicar/remover; ou selecione e rode o comando)",
-  aparar: " (passe o mouse sobre um segmento e clique para removê-lo)",
+  aparar:
+    " (passe o mouse sobre um segmento e clique para removê-lo; numa linha reta sem cruzamento, 2 cliques abrem um vão -- ex.: porta numa parede)",
   deslocar: " (digite a distância na linha de comando, clique na linha, clique no lado)",
-  concordancia: " (clique em duas linhas; R muda o raio na linha de comando)",
+  // Iteração 38 -- dica reescrita pra deixar mais claro que o CANTO
+  // ARREDONDADO já é uma opção (raio > 0, campo "Raio do canto (mm)" na
+  // barra de propriedades, ou digitando R + um número na linha de
+  // comando) -- raio 0 continua fechando o canto reto ("em bico"), como
+  // sempre. Pedido do usuário: "quero ter a opcao de fechar um canto de
+  // linhas arredondado tambem".
+  concordancia:
+    " (clique em duas linhas; raio 0 fecha o canto reto, raio > 0 arredonda -- ajuste em \"Raio do canto (mm)\" na barra lateral, ou digite R + um número na linha de comando)",
   texto: " (clique para posicionar, digite o conteúdo na linha de comando)",
   cota: " (clique no ponto inicial, no ponto final, e depois posicione a linha de cota)",
   selecionar:
@@ -61,9 +92,13 @@ interface ToolRulerProps {
  * Únicas ferramentas que fazem sentido com uma Prancha ativa -- ela é uma
  * janela de plotagem somente-leitura, sem desenho direto. "viewport"
  * (MV -- insere um novo Viewport nesta Prancha) foi liberado na Iteração
- * 12g ("preciso do botao viewport dentro da prancha").
+ * 12g ("preciso do botao viewport dentro da prancha"). Exportado
+ * (Iteração 38) pra `CanvasStage.tsx` reaproveitar na mesma checagem
+ * antes de a tecla Espaço repetir o último comando -- sem isso, Espaço
+ * poderia reativar uma ferramenta indisponível numa Prancha por baixo
+ * dos panos, mesmo com o botão correspondente desabilitado na tela.
  */
-const FERRAMENTAS_PERMITIDAS_EM_PRANCHA: Ferramenta[] = ["selecionar", "zoomWindow", "viewport"];
+export const FERRAMENTAS_PERMITIDAS_EM_PRANCHA: Ferramenta[] = ["selecionar", "zoomWindow", "viewport"];
 
 export function ToolRuler({ orientacao }: ToolRulerProps) {
   const ferramenta = useCadStore((s) => s.ferramenta);
