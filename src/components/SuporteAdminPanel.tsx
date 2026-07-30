@@ -7,7 +7,8 @@ import {
   observarTodasConversas,
   type ConversaSuporte,
 } from "@/lib/suporte";
-import { observarErrosRecentes, type ErroReportado } from "@/lib/errorLog";
+import { observarErrosRecentes, contarErrosReportados, type ErroReportado } from "@/lib/errorLog";
+import { contarProjetosSalvos } from "@/lib/firebase";
 
 function formatarHora(epochMs: number): string {
   if (!epochMs) return "";
@@ -42,9 +43,18 @@ export function SuporteAdminPanel({ onFechar }: SuporteAdminPanelProps) {
   // Iteração 45 -- monitoramento de erros: 2ª aba dentro do mesmo painel
   // do admin (em vez de um modal separado), já que ambos são "coisas que
   // só o admin vê" -- reaproveita o mesmo cabeçalho/botão de fechar.
-  const [aba, setAba] = useState<"conversas" | "erros">("conversas");
+  const [aba, setAba] = useState<"conversas" | "erros" | "resumo">("conversas");
   const [erros, setErros] = useState<ErroReportado[]>([]);
   const [erroSelecionadoId, setErroSelecionadoId] = useState<string | null>(null);
+
+  // Iteração 45 -- "Resumo de uso" (3ª aba): números simples pro admin
+  // acompanhar a adoção do Beta sem precisar abrir o Firebase Console.
+  // Carregado só quando a aba é aberta (não no mount do painel inteiro) --
+  // são consultas de contagem, mais leves que os listeners das outras
+  // abas, mas não precisa rodar toda vez que o painel abre se o admin
+  // nunca olhar essa aba.
+  const [resumo, setResumo] = useState<{ projetos: number; erros: number } | null>(null);
+  const [carregandoResumo, setCarregandoResumo] = useState(false);
 
   useEffect(() => {
     const unsubscribe = observarTodasConversas(setConversas);
@@ -55,6 +65,27 @@ export function SuporteAdminPanel({ onFechar }: SuporteAdminPanelProps) {
     const unsubscribe = observarErrosRecentes(setErros);
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    if (aba !== "resumo") return;
+    let cancelado = false;
+    // O `setCarregandoResumo(true)` roda dentro do callback do rAF (não
+    // direto no corpo do efeito) pra não disparar setState síncrono
+    // dentro de um efeito -- mesmo padrão já usado em `CalibrationModal.tsx`/
+    // `ProjectManagerModal.tsx`.
+    const id = requestAnimationFrame(() => {
+      setCarregandoResumo(true);
+      Promise.all([contarProjetosSalvos(), contarErrosReportados()]).then(([projetos, totalErros]) => {
+        if (cancelado) return;
+        setResumo({ projetos, erros: totalErros });
+        setCarregandoResumo(false);
+      });
+    });
+    return () => {
+      cancelado = true;
+      cancelAnimationFrame(id);
+    };
+  }, [aba]);
 
   const conversaSelecionada = useMemo(
     () => conversas.find((c) => c.uid === uidSelecionado) ?? null,
@@ -96,7 +127,9 @@ export function SuporteAdminPanel({ onFechar }: SuporteAdminPanelProps) {
             <p className="text-[11px] text-slate-400">
               {aba === "conversas"
                 ? `${conversas.length} conversa(s) -- ${conversas.filter((c) => c.naoLidoAdmin).length} com mensagem nova.`
-                : `${erros.length} erro(s) reportado(s) automaticamente pelo app.`}
+                : aba === "erros"
+                  ? `${erros.length} erro(s) reportado(s) automaticamente pelo app.`
+                  : "Números gerais de uso do Beta."}
             </p>
           </div>
           <button type="button" onClick={onFechar} className="text-slate-400 hover:text-slate-600" title="Fechar">
@@ -121,6 +154,13 @@ export function SuporteAdminPanel({ onFechar }: SuporteAdminPanelProps) {
             className={`px-4 py-2 text-xs font-medium ${aba === "erros" ? "border-b-2 border-blue-600 text-blue-700" : "text-slate-500 hover:text-slate-700"}`}
           >
             ⚠️ Erros {erros.length > 0 && `(${erros.length})`}
+          </button>
+          <button
+            type="button"
+            onClick={() => setAba("resumo")}
+            className={`px-4 py-2 text-xs font-medium ${aba === "resumo" ? "border-b-2 border-blue-600 text-blue-700" : "text-slate-500 hover:text-slate-700"}`}
+          >
+            📊 Resumo
           </button>
         </div>
 
@@ -207,7 +247,7 @@ export function SuporteAdminPanel({ onFechar }: SuporteAdminPanelProps) {
               )}
             </div>
           </div>
-        ) : (
+        ) : aba === "erros" ? (
           <div className="flex flex-1 overflow-hidden">
             <div className="w-64 shrink-0 overflow-y-auto border-r border-slate-100">
               {erros.length === 0 ? (
@@ -266,6 +306,37 @@ export function SuporteAdminPanel({ onFechar }: SuporteAdminPanelProps) {
                 </div>
               )}
             </div>
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto p-4">
+            {carregandoResumo || !resumo ? (
+              <p className="text-xs text-slate-400">Carregando números...</p>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded border border-slate-200 p-3">
+                  <p className="text-2xl font-semibold text-slate-800">{resumo.projetos}</p>
+                  <p className="text-[11px] text-slate-500">projeto(s) salvo(s) ao todo</p>
+                </div>
+                <div className="rounded border border-slate-200 p-3">
+                  <p className="text-2xl font-semibold text-slate-800">{conversas.length}</p>
+                  <p className="text-[11px] text-slate-500">pessoa(s) já usaram &quot;💬 Sugestões&quot;</p>
+                </div>
+                <div className="rounded border border-slate-200 p-3">
+                  <p className="text-2xl font-semibold text-slate-800">
+                    {conversas.reduce((soma, c) => soma + c.mensagens.length, 0)}
+                  </p>
+                  <p className="text-[11px] text-slate-500">mensagem(ns) trocada(s) no total</p>
+                </div>
+                <div className="rounded border border-slate-200 p-3">
+                  <p className="text-2xl font-semibold text-slate-800">{resumo.erros}</p>
+                  <p className="text-[11px] text-slate-500">erro(s) reportado(s) automaticamente</p>
+                </div>
+              </div>
+            )}
+            <p className="mt-4 text-[10px] leading-snug text-slate-400">
+              Não inclui o número total de contas criadas -- isso exigiria acesso administrativo separado ao
+              Firebase Authentication, fora do alcance do app.
+            </p>
           </div>
         )}
       </div>

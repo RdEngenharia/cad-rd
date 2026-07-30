@@ -12,6 +12,7 @@ import { CalibrationModal } from "./CalibrationModal";
 import { ProjectManagerModal } from "./ProjectManagerModal";
 import { SuportePanel } from "./SuportePanel";
 import { AjudaPanel } from "./AjudaPanel";
+import { BemVindoBanner } from "./BemVindoBanner";
 import { useHydrateXrefs } from "@/lib/useHydrateXrefs";
 import { useCapturarErros } from "@/lib/useCapturarErros";
 import { useCadStore } from "@/lib/store";
@@ -88,6 +89,7 @@ export function Editor() {
   return (
     <div className="flex h-dvh w-full flex-col overflow-hidden bg-slate-100">
       <Toolbar />
+      <BemVindoBanner />
       {toolbarPosicao === "TOP" && <ToolRuler orientacao="TOP" />}
       <div className="flex flex-1 overflow-hidden">
         {toolbarPosicao === "LEFT" && <ToolRuler orientacao="LEFT" />}

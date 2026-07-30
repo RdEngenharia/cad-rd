@@ -29,6 +29,7 @@ import {
   deleteDoc,
   collection,
   getDocs,
+  getCountFromServer,
   query,
   where,
   serverTimestamp,
@@ -258,6 +259,27 @@ export async function renomearProjeto(
     return { ok: true };
   } catch (e) {
     return { ok: false, erro: mensagemErroGenerica(e, "renomear o projeto") };
+  }
+}
+
+/**
+ * Conta quantos projetos existem ao todo (Iteração 45 -- "Resumo" do
+ * painel do admin, ver `SuporteAdminPanel.tsx`). Usa `getCountFromServer`
+ * em vez de `getDocs` (que baixaria o conteúdo INTEIRO de cada projeto,
+ * incluindo geometria potencialmente grande) -- só o número, bem mais
+ * leve. A coleção "projetos" já é de leitura pública (ver
+ * `firestore.rules`), então isso funciona sem exigir nenhuma regra nova.
+ */
+export async function contarProjetosSalvos(): Promise<number> {
+  if (!FIREBASE_CONFIGURADO) {
+    return Object.keys(window.localStorage).filter((k) => k.startsWith(LOCAL_STORAGE_PREFIX)).length;
+  }
+  try {
+    const snap = await getCountFromServer(collection(getDb(), COLECAO_PROJETOS));
+    return snap.data().count;
+  } catch (e) {
+    console.error("Erro ao contar projetos:", e);
+    return 0;
   }
 }
 

@@ -24,7 +24,7 @@
  * -----------------------------------------------------------------------
  */
 
-import { addDoc, collection, onSnapshot, orderBy, query, limit, type Unsubscribe } from "firebase/firestore";
+import { addDoc, collection, onSnapshot, orderBy, query, limit, getCountFromServer, type Unsubscribe } from "firebase/firestore";
 import { FIREBASE_CONFIGURADO, getDb } from "./firebase";
 
 export interface ErroReportado {
@@ -63,6 +63,22 @@ function gravarErrosLocal(lista: ErroReportado[]): void {
   }
 }
 
+// Iteração 45 -- limite simples contra spam (mesmo espírito do limite em
+// `lib/suporte.ts`): um erro que acontece dentro de um loop de render (o
+// pior caso realista aqui, não um usuário mal-intencionado) poderia
+// disparar `reportarErro` centenas de vezes por segundo -- sem limite,
+// isso lotaria o Firestore rapidinho. Dois limites, ambos só EM MEMÓRIA
+// (resetam a cada recarregar a página, o que é aceitável: o objetivo é
+// evitar rajada, não contar erros ao longo de dias):
+//   1) A MESMA mensagem de erro só é reportada de novo depois de um
+//      "cooldown" (evita repetição do mesmo problema em loop).
+//   2) Um teto total de reports por sessão (evita qualquer cenário,
+//      mesmo com mensagens diferentes, de flood descontrolado).
+const COOLDOWN_MESMO_ERRO_MS = 60 * 1000;
+const MAX_ERROS_POR_SESSAO = 20;
+const ultimoReportPorMensagem = new Map<string, number>();
+let totalReportadoNaSessao = 0;
+
 /**
  * Reporta um erro capturado automaticamente. NUNCA lança -- é chamado de
  * dentro de um handler global de erro (`window.onerror`/
@@ -76,6 +92,13 @@ export async function reportarErro(entrada: {
   usuarioEmail?: string | null;
 }): Promise<void> {
   try {
+    if (totalReportadoNaSessao >= MAX_ERROS_POR_SESSAO) return;
+    const agora = Date.now();
+    const ultimoDaMesma = ultimoReportPorMensagem.get(entrada.mensagem);
+    if (ultimoDaMesma && agora - ultimoDaMesma < COOLDOWN_MESMO_ERRO_MS) return;
+    ultimoReportPorMensagem.set(entrada.mensagem, agora);
+    totalReportadoNaSessao += 1;
+
     const erro: ErroReportado = {
       id: crypto.randomUUID(),
       mensagem: entrada.mensagem.slice(0, 500),
@@ -124,4 +147,23 @@ export function observarErrosRecentes(callback: (erros: ErroReportado[]) => void
     });
     callback(erros);
   });
+}
+
+/**
+ * Conta o TOTAL de erros já reportados (Iteração 45 -- aba "📊 Resumo" do
+ * painel do admin). Diferente de `observarErrosRecentes` (que só traz os
+ * 100 mais recentes, pra exibir numa lista) -- aqui é só o número, via
+ * `getCountFromServer`, sem baixar nenhum documento.
+ */
+export async function contarErrosReportados(): Promise<number> {
+  if (!FIREBASE_CONFIGURADO) {
+    return lerErrosLocal().length;
+  }
+  try {
+    const snap = await getCountFromServer(collection(getDb(), COLECAO_ERROS));
+    return snap.data().count;
+  } catch (e) {
+    console.error("Erro ao contar erros reportados:", e);
+    return 0;
+  }
 }

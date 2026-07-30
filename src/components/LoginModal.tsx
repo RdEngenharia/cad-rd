@@ -207,9 +207,15 @@ export function LoginModal({ aberto, onFechar }: LoginModalProps) {
             qualquer parte do editor. */}
         <div className="mt-3 border-t border-slate-100 pt-2 text-[10px] leading-snug text-slate-400">
           <p>🧪 Versão Beta -- gratuita durante o período de testes. Depois, uso mensal de R$49,90.</p>
-          <a href="/privacidade" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
-            Política de Privacidade
-          </a>
+          <p className="mt-0.5 flex gap-2">
+            <a href="/privacidade" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+              Política de Privacidade
+            </a>
+            <span>·</span>
+            <a href="/termos" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+              Termos de Uso
+            </a>
+          </p>
         </div>
       </form>
     </div>

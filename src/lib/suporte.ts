@@ -98,6 +98,27 @@ function gravarConversaLocal(conversa: ConversaSuporte): void {
   }
 }
 
+// Iteração 45 -- limite simples contra spam (melhoria sugerida e aceita
+// pelo usuário: "quero avisos fáceis e limpos, foque na experiência do
+// usuário"). Como o link do Beta vai circular em grupos abertos, alguém
+// (de propósito ou sem querer, ex.: segurando Enter) poderia mandar
+// dezenas de mensagens seguidas e lotar o painel do admin. O limite é só
+// do lado do CLIENTE -- é o suficiente pra evitar o caso comum (alguém
+// mandando mensagem repetida sem querer), mas não é uma barreira de
+// segurança de verdade: alguém decidido a abusar do sistema mexendo no
+// console do navegador ainda consegue burlar isso (uma proteção real
+// exigiria Cloud Functions contando no servidor, fora do escopo agora --
+// mesmo tipo de limite já documentado noutros pontos do app, ex.:
+// `firestore.rules`). O aviso mostrado é curto e educado, sem jargão.
+const LIMITE_MENSAGENS_POR_HORA = 5;
+const UMA_HORA_MS = 60 * 60 * 1000;
+
+function excedeuLimiteDeEnvio(mensagens: MensagemSuporte[]): boolean {
+  const agora = Date.now();
+  const recentes = mensagens.filter((m) => m.de === "usuario" && agora - m.criado_em < UMA_HORA_MS);
+  return recentes.length >= LIMITE_MENSAGENS_POR_HORA;
+}
+
 /** Envia uma mensagem do USUÁRIO (cria a conversa se for a 1ª vez). */
 export async function enviarMensagemUsuario(uid: string, email: string, texto: string): Promise<{ ok: boolean; erro?: string }> {
   const limpo = texto.trim();
@@ -106,6 +127,9 @@ export async function enviarMensagemUsuario(uid: string, email: string, texto: s
 
   if (!FIREBASE_CONFIGURADO) {
     const atual = lerConversaLocal(uid);
+    if (atual && excedeuLimiteDeEnvio(atual.mensagens)) {
+      return { ok: false, erro: "Você atingiu o limite de mensagens por hora. Tente novamente mais tarde." };
+    }
     const conversa: ConversaSuporte = atual
       ? { ...atual, mensagens: [...atual.mensagens, nova], atualizado_em: Date.now(), naoLidoAdmin: true }
       : { uid, email, mensagens: [nova], atualizado_em: Date.now(), naoLidoUsuario: false, naoLidoAdmin: true };
@@ -117,6 +141,10 @@ export async function enviarMensagemUsuario(uid: string, email: string, texto: s
     const ref = doc(getDb(), COLECAO_SUPORTE, uid);
     const snap = await getDoc(ref);
     if (snap.exists()) {
+      const existente = snap.data() as ConversaSuporte;
+      if (excedeuLimiteDeEnvio(existente.mensagens ?? [])) {
+        return { ok: false, erro: "Você atingiu o limite de mensagens por hora. Tente novamente mais tarde." };
+      }
       await updateDoc(ref, { mensagens: arrayUnion(nova), atualizado_em: serverTimestamp(), naoLidoAdmin: true, email });
     } else {
       await setDoc(ref, {
