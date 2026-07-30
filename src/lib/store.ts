@@ -824,7 +824,7 @@ interface CadState {
    * chamou poder encaixar ali a foto real do padrão, se o usuário anexou
    * uma no modal.
    */
-  gerarDiagramaFotovoltaico: (dados: DadosDiagramaFv) => { boxPadraoEntradaRepresentativo: RetanguloMm };
+  gerarDiagramaFotovoltaico: (dados: DadosDiagramaFv) => { boxPadraoEntradaRepresentativo: RetanguloMm; boxDetalhePlaca: RetanguloMm };
 
   // Gerador de sistema fotovoltaico no solo (Iteração 29) --------------------
   /**
@@ -2978,7 +2978,7 @@ export const useCadStore = create<CadState>((set, get) => {
       ? { x: origemPadrao.x, y: origemPadrao.y, largura: bboxPrevia.maxX - bboxPrevia.minX, altura: bboxPrevia.maxY - bboxPrevia.minY }
       : { x: origemPadrao.x, y: origemPadrao.y, largura: 0, altura: 0 };
     const origemFinal = origemLivreParaGerador(get().projeto.geometria, ORIGEM_GERADOR_DIAGRAMA_FV, candidato);
-    const { geometria: novos, boxPadraoEntradaRepresentativo } =
+    const { geometria: novos, boxPadraoEntradaRepresentativo, boxDetalhePlaca } =
       origemFinal.x === origemPadrao.x && origemFinal.y === origemPadrao.y
         ? previaNaOrigemPadrao
         : construirGeometriaDiagramaFv(dados, origemFinal.x, origemFinal.y, camada);
@@ -3008,11 +3008,12 @@ export const useCadStore = create<CadState>((set, get) => {
 
     // Devolvido pra quem chamou (o modal, `DiagramaFvModal.tsx`) poder
     // encaixar ali dentro a foto real do padrão de entrada que o usuário
-    // anexou, se houver -- a criação do XREF em si é responsabilidade do
-    // modal (mesmo padrão assíncrono de `XrefImportButton.tsx`: medir a
-    // imagem, gerar o Object URL, persistir no IndexedDB), não desta ação
-    // síncrona do store.
-    return { boxPadraoEntradaRepresentativo };
+    // anexou, se houver, e (Iteração 46) a imagem padrão da placa de
+    // advertência (sempre, automaticamente) -- a criação dos XREFs em si é
+    // responsabilidade do modal (mesmo padrão assíncrono de
+    // `XrefImportButton.tsx`: medir a imagem, gerar o Object URL,
+    // persistir no IndexedDB), não desta ação síncrona do store.
+    return { boxPadraoEntradaRepresentativo, boxDetalhePlaca };
   },
 
   // Gerador de sistema fotovoltaico no solo (Iteração 29 -- ver cabeçalho

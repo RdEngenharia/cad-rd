@@ -49,6 +49,21 @@ export function XrefImportButton() {
   const iniciarCalibracao = useCadStore((s) => s.iniciarCalibracao);
   const ferramenta = useCadStore((s) => s.ferramenta);
   const calibXrefId = useCadStore((s) => s.calibXrefId);
+  // Iteração 46 -- pedido do usuário: "quando importo uma imagem nao
+  // precisa fixar esse calibrador por referencia, isso só deve aparecer
+  // se a imagem estiver selecionada, imagine se eu tiver 20 imagens no
+  // desenho essa barra ficaria gigante". Antes, TODO XREF importado
+  // desenhava sempre o bloco inteiro (botão "Calibrar por referência" +
+  // grade X/Y/Escala), mesmo sem estar selecionado -- com várias imagens
+  // importadas, a barra lateral virava uma lista enorme e difícil de
+  // navegar. Agora só a linha compacta (nome + visibilidade + remover)
+  // fica sempre visível; o resto (calibrar + X/Y/Escala) só aparece pro
+  // XREF que estiver SELECIONADO no momento (`xrefSelecionadoId`, mesmo
+  // estado que já controla os grips de canto no canvas -- ver
+  // `XrefLayer.tsx`). Clicar na linha compacta também seleciona/desmarca
+  // (não precisa necessariamente clicar na imagem lá no canvas).
+  const xrefSelecionadoId = useCadStore((s) => s.xrefSelecionadoId);
+  const selecionarXref = useCadStore((s) => s.selecionarXref);
 
   /** Rasteriza (se PDF) ou lê direto (se imagem) e cria o XREF -- ponto final comum de todo fluxo de importação. */
   async function importarArquivo(file: File, ehPdf: boolean, pagina: number) {
@@ -91,6 +106,12 @@ export function XrefImportButton() {
       });
 
       await saveXrefBlob(id, blob);
+      // Iteração 46: já seleciona o XREF recém-importado -- como o bloco
+      // de calibração/X/Y/Escala agora só aparece com o item selecionado
+      // (ver comentário acima, no topo do componente), sem isso o usuário
+      // precisaria clicar de novo só pra ver os campos de posição logo
+      // depois de importar.
+      selecionarXref(id);
       setPdfPendente(null);
     } catch (err) {
       setErro(err instanceof Error ? err.message : String(err));
@@ -158,16 +179,30 @@ export function XrefImportButton() {
       </p>
 
       {xrefs.length > 0 && (
-        <ul className="mt-2 space-y-2">
+        <ul className="mt-2 space-y-1">
           {xrefs.map((x) => {
             const calibrandoEste = ferramenta === "calibrar" && calibXrefId === x.id;
+            const selecionado = xrefSelecionadoId === x.id;
             return (
             <li
               key={x.id}
-              className={`rounded-md border p-2 text-[11px] ${calibrandoEste ? "border-amber-400 bg-amber-50" : "border-slate-200"}`}
+              className={`rounded-md border text-[11px] ${
+                calibrandoEste ? "border-amber-400 bg-amber-50" : selecionado ? "border-blue-300 bg-blue-50" : "border-slate-200"
+              }`}
             >
-              <div className="mb-1 flex items-center justify-between gap-1">
-                <span className="flex min-w-0 items-center gap-1">
+              {/* Linha compacta -- SEMPRE visível, mesmo com várias dezenas
+                  de XREFs importados (pedido do usuário). Clicar nela
+                  seleciona/desmarca este XREF (mesmo `xrefSelecionadoId`
+                  usado pelos grips de canto no canvas -- clicar na imagem
+                  lá no desenho também expande este mesmo bloco aqui). */}
+              <div className="flex items-center justify-between gap-1 p-2">
+                <button
+                  type="button"
+                  onClick={() => selecionarXref(selecionado ? null : x.id)}
+                  className="flex min-w-0 flex-1 items-center gap-1 text-left"
+                  title={selecionado ? "Ocultar configurações" : "Selecionar (mostra calibração e X/Y/Escala)"}
+                >
+                  <span className="shrink-0 text-slate-400">{selecionado ? "▾" : "▸"}</span>
                   <span className="truncate font-medium text-slate-700" title={x.nome_arquivo}>
                     {x.nome_arquivo}
                   </span>
@@ -176,7 +211,7 @@ export function XrefImportButton() {
                       📐
                     </span>
                   )}
-                </span>
+                </button>
                 <button
                   type="button"
                   onClick={() => updateXref(x.id, { visivel: x.visivel === false })}
@@ -197,56 +232,64 @@ export function XrefImportButton() {
                 </button>
               </div>
 
-              <button
-                type="button"
-                onClick={() => iniciarCalibracao(x.id)}
-                disabled={calibrandoEste}
-                title="Ajustar a escala da imagem clicando em dois pontos de referência conhecidos (ex.: a barra de escala do Google Maps)"
-                className={`mb-1 w-full rounded border px-1.5 py-1 text-[10px] font-medium ${
-                  calibrandoEste
-                    ? "cursor-default border-amber-300 bg-amber-100 text-amber-700"
-                    : "border-slate-200 text-slate-600 hover:border-amber-300 hover:bg-amber-50 hover:text-amber-700"
-                }`}
-              >
-                📐 {calibrandoEste ? "Calibrando..." : "Calibrar por referência"}
-              </button>
-              {calibrandoEste && (
-                <p className="mb-1 rounded bg-amber-100 p-1.5 text-[10px] leading-snug text-amber-800">
-                  Clique em dois pontos conhecidos da imagem (ex.: as duas pontas da barra de escala do
-                  mapa). Esc cancela.
-                </p>
-              )}
+              {/* Calibração + X/Y/Escala -- só aparecem com este XREF
+                  SELECIONADO (clique na linha acima ou na própria imagem
+                  no canvas), não mais sempre-visível pra todo XREF
+                  importado. */}
+              {selecionado && (
+                <div className="border-t border-slate-200 p-2 pt-1.5">
+                  <button
+                    type="button"
+                    onClick={() => iniciarCalibracao(x.id)}
+                    disabled={calibrandoEste}
+                    title="Ajustar a escala da imagem clicando em dois pontos de referência conhecidos (ex.: a barra de escala do Google Maps)"
+                    className={`mb-1 w-full rounded border px-1.5 py-1 text-[10px] font-medium ${
+                      calibrandoEste
+                        ? "cursor-default border-amber-300 bg-amber-100 text-amber-700"
+                        : "border-slate-200 text-slate-600 hover:border-amber-300 hover:bg-amber-50 hover:text-amber-700"
+                    }`}
+                  >
+                    📐 {calibrandoEste ? "Calibrando..." : "Calibrar por referência"}
+                  </button>
+                  {calibrandoEste && (
+                    <p className="mb-1 rounded bg-amber-100 p-1.5 text-[10px] leading-snug text-amber-800">
+                      Clique em dois pontos conhecidos da imagem (ex.: as duas pontas da barra de escala do
+                      mapa). Esc cancela.
+                    </p>
+                  )}
 
-              <div className="grid grid-cols-3 gap-1">
-                <label className="flex flex-col gap-0.5">
-                  <span className="text-slate-400">X</span>
-                  <input
-                    type="number"
-                    value={x.x}
-                    onChange={(e) => updateXref(x.id, { x: Number(e.target.value) })}
-                    className="w-full rounded border border-slate-200 px-1 py-0.5"
-                  />
-                </label>
-                <label className="flex flex-col gap-0.5">
-                  <span className="text-slate-400">Y</span>
-                  <input
-                    type="number"
-                    value={x.y}
-                    onChange={(e) => updateXref(x.id, { y: Number(e.target.value) })}
-                    className="w-full rounded border border-slate-200 px-1 py-0.5"
-                  />
-                </label>
-                <label className="flex flex-col gap-0.5">
-                  <span className="text-slate-400">Escala</span>
-                  <input
-                    type="number"
-                    step="any"
-                    value={x.escala}
-                    onChange={(e) => updateXref(x.id, { escala: Number(e.target.value), calibrado: false })}
-                    className="w-full rounded border border-slate-200 px-1 py-0.5"
-                  />
-                </label>
-              </div>
+                  <div className="grid grid-cols-3 gap-1">
+                    <label className="flex flex-col gap-0.5">
+                      <span className="text-slate-400">X</span>
+                      <input
+                        type="number"
+                        value={x.x}
+                        onChange={(e) => updateXref(x.id, { x: Number(e.target.value) })}
+                        className="w-full rounded border border-slate-200 px-1 py-0.5"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-0.5">
+                      <span className="text-slate-400">Y</span>
+                      <input
+                        type="number"
+                        value={x.y}
+                        onChange={(e) => updateXref(x.id, { y: Number(e.target.value) })}
+                        className="w-full rounded border border-slate-200 px-1 py-0.5"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-0.5">
+                      <span className="text-slate-400">Escala</span>
+                      <input
+                        type="number"
+                        step="any"
+                        value={x.escala}
+                        onChange={(e) => updateXref(x.id, { escala: Number(e.target.value), calibrado: false })}
+                        className="w-full rounded border border-slate-200 px-1 py-0.5"
+                      />
+                    </label>
+                  </div>
+                </div>
+              )}
             </li>
             );
           })}

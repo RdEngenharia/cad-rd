@@ -541,8 +541,14 @@ function desenharCarimboDxf(
 
   // Campo de Notas -----------------------------------------------------
   const larguraNotas = largura - 4;
-  const fsNotasLabel = 2.6;
-  const fsNotasCorpo = 2.3;
+  // Iteração 46 -- mesma correção de tamanho de `TitleBlockLayer.tsx`/
+  // `pdfExport.ts`: pedido do usuário ("corrija o tamanho do texto no
+  // campo de inserir notas... quero o tamanho da caixa de texto igual o
+  // texto do diagrama") -- `FS_DIAGRAMA` casa com `FS_LABEL`/`FS_CORPO` de
+  // `diagramaFv.ts` (4.6mm).
+  const FS_DIAGRAMA = 4.6;
+  const fsNotasCorpo = FS_DIAGRAMA;
+  const fsNotasLabel = FS_DIAGRAMA * 1.13;
   const linhasNotas = quebrarLinhasTextoDxf(carimbo.notas || "", larguraNotas, fsNotasCorpo, 10);
   const linhasNotasExibidas = linhasNotas.length > 0 ? linhasNotas : [""];
   const alturaLinhaNotas = fsNotasCorpo * 1.5;
@@ -622,9 +628,27 @@ function desenharCarimboDxf(
     }
   };
 
+  /**
+   * Iteração 46 -- campo dedicado pro "CLIENTE" com CPF opcional numa 2ª
+   * linha (pedido do usuário: "falta o campo de digitar o cpf do
+   * cliente") -- mesmo raciocínio de `campoResponsavelTecnico` acima,
+   * espelhando `TitleBlockLayer.tsx#campoClienteComCpf`/`pdfExport.ts`.
+   */
+  const campoClienteComCpf = (x: number, y: number) => {
+    texto(x + 1.5, y + 0.6, "CLIENTE", fsLabel);
+    const temCpf = !!carimbo.cpfCliente;
+    const fsValorCliente = temCpf ? fsValor * 0.72 : fsValor;
+    const linhaAlturaCliente = fsValorCliente * 1.2;
+    const yValor = y + fsLabel + 1.4;
+    texto(x + 1.5, yValor, carimbo.cliente || "—", fsValorCliente);
+    if (temCpf) {
+      texto(x + 1.5, yValor + linhaAlturaCliente, `CPF ${carimbo.cpfCliente}`, fsValorCliente);
+    }
+  };
+
   campoTitulo(carimbo.titulo || "TÍTULO DO PROJETO");
   campo(bx, yLinha2, largura, "ENDEREÇO DO CLIENTE", carimbo.enderecoCliente);
-  campo(bx, yLinha3, largura / 2, "CLIENTE", carimbo.cliente);
+  campoClienteComCpf(bx, yLinha3);
   campoResponsavelTecnico(bx + largura / 2, yLinha3);
   campo(bx, yLinha4, largura / 2, "CONTA CONTRATO", carimbo.contaContrato);
   campo(bx + largura / 2, yLinha4, largura / 2, "TIPO DE LIGAÇÃO", ROTULOS_TIPO_LIGACAO[carimbo.tipoLigacao]);

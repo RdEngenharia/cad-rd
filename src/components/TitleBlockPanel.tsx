@@ -70,6 +70,11 @@ type CampoTexto = { chave: keyof Omit<Carimbo, "visivel" | "logoDataUrl" | "tipo
 const CAMPOS_ANTES_TIPO_LIGACAO: CampoTexto[] = [
   { chave: "titulo", label: "Título do projeto", placeholder: "Ex.: Sistema Fotovoltaico 10kWp" },
   { chave: "cliente", label: "Cliente", placeholder: "Nome do cliente" },
+  // Iteração 46 -- pedido do usuário: "falta o campo de digitar o cpf do
+  // cliente". Logo em seguida do nome do cliente (aparece numa 2ª linha
+  // abaixo dele no carimbo desenhado, mesmo padrão do CREA abaixo do
+  // responsável técnico -- ver `campoClienteComCpf` em `TitleBlockLayer.tsx`).
+  { chave: "cpfCliente", label: "CPF do cliente", placeholder: "Ex.: 123.456.789-00" },
   { chave: "enderecoCliente", label: "Endereço do cliente", placeholder: "Rua, número, bairro, cidade/UF" },
   { chave: "responsavel", label: "Responsável técnico", placeholder: "Nome do engenheiro/projetista" },
   { chave: "crea", label: "CREA/CFT", placeholder: "Ex.: 123456-D/SP" },
@@ -202,7 +207,12 @@ export function TitleBlockPanel() {
               type="text"
               value={carimbo[c.chave]}
               placeholder={c.placeholder}
-              onChange={(e) => atualizarCarimbo({ [c.chave]: e.target.value } as Partial<Carimbo>)}
+              // Iteração 46 -- pedido do usuário: "preciso que todo o texto
+              // digitado fique maiusculo" (convenção real de carimbo/
+              // quadro de título ABNT, sempre em letras maiúsculas).
+              // Transforma no PRÓPRIO valor salvo (não só visualmente),
+              // pra sair maiúsculo também no PDF/DXF exportado.
+              onChange={(e) => atualizarCarimbo({ [c.chave]: e.target.value.toUpperCase() } as Partial<Carimbo>)}
               className="mt-0.5 w-full rounded border border-slate-200 px-1.5 py-1 text-[11px]"
             />
           </label>
@@ -234,7 +244,12 @@ export function TitleBlockPanel() {
               type="text"
               value={carimbo[c.chave]}
               placeholder={c.placeholder}
-              onChange={(e) => atualizarCarimbo({ [c.chave]: e.target.value } as Partial<Carimbo>)}
+              // Iteração 46 -- pedido do usuário: "preciso que todo o texto
+              // digitado fique maiusculo" (convenção real de carimbo/
+              // quadro de título ABNT, sempre em letras maiúsculas).
+              // Transforma no PRÓPRIO valor salvo (não só visualmente),
+              // pra sair maiúsculo também no PDF/DXF exportado.
+              onChange={(e) => atualizarCarimbo({ [c.chave]: e.target.value.toUpperCase() } as Partial<Carimbo>)}
               className="mt-0.5 w-full rounded border border-slate-200 px-1.5 py-1 text-[11px]"
             />
           </label>
@@ -311,7 +326,10 @@ export function TitleBlockPanel() {
         {/* Iteração 19: notas técnicas -- caixa própria ACIMA do carimbo
             (não faz parte da grade de campos), texto livre multilinha que
             muda conforme o projeto -- "as notas ficam na parte superior do
-            carimbo... esse campo pode ser editavel". */}
+            carimbo... esse campo pode ser editavel". Iteração 46: já vem
+            preenchido com o texto padrão de projetos fotovoltaicos do
+            usuário (`NOTAS_PADRAO_FOTOVOLTAICO`, ver `lib/types.ts`) em
+            todo projeto NOVO -- continua 100% editável/ajustável. */}
         <label className="block text-[11px] text-slate-600">
           Notas (aparecem numa caixa acima do carimbo)
           <textarea
@@ -319,7 +337,8 @@ export function TitleBlockPanel() {
             placeholder={
               "Ex.: 1. A seção transversal dos condutores foi dimensionada em função da corrente máxima...\n2. Cabos em corrente contínua isolados em XLPE..."
             }
-            onChange={(e) => atualizarCarimbo({ notas: e.target.value })}
+            // Iteração 46: mesmo pedido de maiúsculas dos campos acima.
+            onChange={(e) => atualizarCarimbo({ notas: e.target.value.toUpperCase() })}
             rows={5}
             className="mt-0.5 w-full resize-y rounded border border-slate-200 px-1.5 py-1 text-[11px]"
           />

@@ -41,6 +41,7 @@
 import { useState, type ChangeEvent } from "react";
 import { useCadStore } from "@/lib/store";
 import { saveXrefBlob } from "@/lib/xrefDb";
+import { PLACA_ADVERTENCIA_PADRAO_DATA_URL, dataUrlParaBlob } from "@/lib/placaAdvertenciaPadrao";
 import {
   estimarCorrenteFusivel,
   ramalLigacaoPadrao,
@@ -376,7 +377,45 @@ export function DiagramaFvModal({ onFechar }: DiagramaFvModalProps) {
     setGerando(true);
     try {
       const dados = montarDados();
-      const { boxPadraoEntradaRepresentativo: box } = gerarDiagramaFotovoltaico(dados);
+      const { boxPadraoEntradaRepresentativo: box, boxDetalhePlaca } = gerarDiagramaFotovoltaico(dados);
+
+      // Iteração 46 -- pedido do usuário: trocar o desenho vetorial da
+      // placa de advertência pela imagem padrão real ("ja deixe tambem o
+      // campo da placa com essa imagem padrao"), inserida SEMPRE
+      // automaticamente (ao contrário da foto do padrão de entrada
+      // abaixo, que é opcional e varia por projeto) -- ver
+      // `lib/placaAdvertenciaPadrao.ts`.
+      try {
+        const blobPlaca = await dataUrlParaBlob(PLACA_ADVERTENCIA_PADRAO_DATA_URL);
+        const objectUrlTempPlaca = URL.createObjectURL(blobPlaca);
+        const dimsPlaca = await medirImagem(objectUrlTempPlaca);
+        URL.revokeObjectURL(objectUrlTempPlaca);
+
+        const escalaPlaca = Math.min(boxDetalhePlaca.largura / dimsPlaca.width, boxDetalhePlaca.altura / dimsPlaca.height);
+        const xPlaca = boxDetalhePlaca.x + (boxDetalhePlaca.largura - dimsPlaca.width * escalaPlaca) / 2;
+        const yPlaca = boxDetalhePlaca.y + (boxDetalhePlaca.altura - dimsPlaca.height * escalaPlaca) / 2;
+
+        const objectUrlPlaca = URL.createObjectURL(blobPlaca);
+        const idPlaca = addXref({
+          nome_arquivo: "placa-advertencia-padrao.jpg",
+          tipo: "imagem",
+          x: xPlaca,
+          y: yPlaca,
+          escala: Number(escalaPlaca.toFixed(4)),
+          largura_px: dimsPlaca.width,
+          altura_px: dimsPlaca.height,
+          objectUrl: objectUrlPlaca,
+        });
+        await saveXrefBlob(idPlaca, blobPlaca);
+      } catch (err) {
+        setErros([
+          `O diagrama foi gerado, mas houve uma falha ao inserir a imagem padrão da placa de advertência: ${
+            err instanceof Error ? err.message : String(err)
+          }. Você pode importar ela manualmente pelo painel de XREF.`,
+        ]);
+        setGerando(false);
+        return;
+      }
 
       if (imagemPlaquinha) {
         try {

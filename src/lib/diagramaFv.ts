@@ -366,18 +366,20 @@ const LEGENDA_ITENS: { nomeBloco?: string; label: string }[] = [
  * Monta a geometria completa do diagrama unifilar fotovoltaico, ancorada
  * em `(origemX, origemY)` (mm de mundo -- tipicamente o canto superior-
  * esquerdo útil da prancha ativa, dentro das margens ABNT). Todas as
- * peças entram na `camada` informada. Devolve também o retângulo
- * reservado ao quadro "Padrão de Entrada Representativo" -- quem chama
- * (ver `store.ts#gerarDiagramaFotovoltaico` e `DiagramaFvModal.tsx`) usa
- * esse retângulo pra encaixar a foto real importada pelo usuário ali
- * dentro, se houver uma.
+ * peças entram na `camada` informada. Devolve também os retângulos
+ * reservados aos quadros "Padrão de Entrada Representativo" e "Detalhe
+ * Placa de Advertência" -- quem chama (ver `store.ts#gerarDiagramaFotovoltaico`
+ * e `DiagramaFvModal.tsx`) usa esses retângulos pra encaixar, via XREF, a
+ * foto real do padrão de entrada importada pelo usuário (se houver) e a
+ * imagem padrão da placa de advertência (Iteração 46 -- SEMPRE inserida
+ * automaticamente, ver `lib/placaAdvertenciaPadrao.ts`).
  */
 export function construirGeometriaDiagramaFv(
   dados: DadosDiagramaFv,
   origemX: number,
   origemY: number,
   camada: string
-): { geometria: NovaGeometria[]; boxPadraoEntradaRepresentativo: RetanguloMm } {
+): { geometria: NovaGeometria[]; boxPadraoEntradaRepresentativo: RetanguloMm; boxDetalhePlaca: RetanguloMm } {
   const g: NovaGeometria[] = [];
   const pe = dados.padraoEntrada;
   const rede = REDE_POR_TIPO[pe.tipoRede];
@@ -435,8 +437,6 @@ export function construirGeometriaDiagramaFv(
   // arquivo, "SIMPLIFICAÇÕES CONHECIDAS", atualizado).
   const caixa = (x: number, y: number, largura: number, altura: number) =>
     g.push({ tipo: "retangulo", camada, x, y, largura, altura, tracejado: true });
-  const caixaPreenchida = (x: number, y: number, largura: number, altura: number, cor: string) =>
-    g.push({ tipo: "retangulo", camada, x, y, largura, altura, hachura: { tipo: "SOLID", escala: 1, cor } });
   /** Ponto/nó de conexão (derivação em T num barramento) -- círculo pequeno preenchido, mesma convenção do PDF de referência do usuário (Iteração 15). */
   const ponto = (x: number, y: number) =>
     g.push({ tipo: "circulo", camada, x, y, raio: 1.3, hachura: { tipo: "SOLID", escala: 1, cor: "#0f172a" } });
@@ -841,10 +841,29 @@ export function construirGeometriaDiagramaFv(
   if (inversores.length > 0) {
     const larguraColInv0 = larguraColunaInversor[0];
     const inicioMppts0X = centrosInversores[0] - (inversores[0].mppts.length * LARGURA_COLUNA_MPPT) / 2 + LARGURA_COLUNA_MPPT / 2;
+    // Iteração 46 -- pedido do usuário: "inclua tambem na descrição de
+    // modulos fotovoltaico a quantidade total... mostra no diagrama a
+    // quantidade total e a potencia total em kwp, exemplo 52 paineis de
+    // 585w = 30.42kwp". A quantidade por MPPT já existia (linha "Módulos:
+    // X un." dentro de cada coluna) -- esta é a SOMA de todas elas (todos
+    // os MPPTs de todos os inversores), somada uma vez só aqui, no rótulo
+    // final que já reúne marca/modelo/eficiência do módulo único do
+    // projeto.
+    const modulosTotalSistema = inversores.reduce(
+      (soma, inv) => soma + inv.mppts.reduce((s, m) => s + m.modulosPorString * m.numeroStrings, 0),
+      0
+    );
+    const potenciaTotalSistemaKwp = (mod.potenciaWp * modulosTotalSistema) / 1000;
     texto(
       Math.min(origemX, inicioMppts0X - larguraColInv0 / 2),
       yFimMaisBaixo + 6,
-      `MÓDULOS FOTOVOLTAICOS\nMarca: ${mod.marca}\nModelo: ${mod.modelo}\nEficiência: ${fmt(mod.eficiencia)}%`,
+      [
+        "MÓDULOS FOTOVOLTAICOS",
+        `Marca: ${mod.marca}`,
+        `Modelo: ${mod.modelo}`,
+        `Eficiência: ${fmt(mod.eficiencia)}%`,
+        `Quantidade total: ${modulosTotalSistema} painéis de ${fmt(mod.potenciaWp, 0)}W = ${fmt(potenciaTotalSistemaKwp)}kWp`,
+      ].join("\n"),
       FS_CORPO
     );
   }
@@ -951,24 +970,29 @@ export function construirGeometriaDiagramaFv(
   const ALTURA_DETALHE = 70;
   caixa(xColunaB, yColunaB, LARGURA_COLUNA_B, ALTURA_DETALHE);
   tituloCentralizado(xColunaB + LARGURA_COLUNA_B / 2, yColunaB - 4, "DETALHE PLACA\nDE ADVERTÊNCIA", FS_TITULO_COLUNA);
-  // Iteração 21: placa alargada de 36 -> 50mm (mantendo a proporção real
-  // 25cm x 18cm) pra caber "RISCO DE CHOQUE ELÉTRICO"/"GERAÇÃO PRÓPRIA" um
-  // pouco maiores (2.2 -> 2.8) sem estourar a placa -- o "ATENÇÃO" sobe
-  // pra `FS_TITULO` (5.5, era `FS_LABEL` 4.2) pra manter a hierarquia
-  // visual (título do quadro > "ATENÇÃO" > texto de risco), sem ir a 2x
-  // cheio: a placa amarela é um DESENHO com dimensão real (25x18cm)
-  // anotada ao lado, não um rótulo solto -- dobrar tudo aqui só pra seguir
-  // "2x" à risca inflaria a placa bem além do que o PDF de referência do
-  // AutoCAD mostra (lá ela ocupa uma fração pequena do quadro, com texto
-  // interno proporcionalmente discreto).
+  /**
+   * Iteração 46 -- pedido do usuário: trocar o desenho VETORIAL da placa
+   * (retângulo amarelo + textos "ATENÇÃO"/"RISCO DE CHOQUE ELÉTRICO"/
+   * "GERAÇÃO PRÓPRIA" desenhados à mão) pela IMAGEM REAL da placa padrão
+   * que ele anexou na conversa ("ja deixe tambem o campo da placa com
+   * essa imagem padrao"), confirmado por ele (AskUserQuestion) como
+   * "substituir o desenho da placa no gerador de diagrama". Mantidas as
+   * mesmas dimensões (50mm x 18/25, proporção real 25cm x 18cm) e a
+   * legenda de medida abaixo -- só o preenchimento amarelo com texto
+   * desenhado sai, dando lugar a este retângulo RESERVADO (sem desenhar
+   * nada aqui): `DiagramaFvModal.tsx` encaixa a imagem padrão (embutida em
+   * `lib/placaAdvertenciaPadrao.ts`) exatamente aqui dentro, via XREF,
+   * automaticamente, logo depois de chamar este gerador -- mesmo mecanismo
+   * já usado pela foto do "Padrão de Entrada Representativo" abaixo, só
+   * que sem precisar de nenhum upload do usuário (é sempre a mesma placa,
+   * ao contrário da foto do padrão de entrada, que muda de projeto pra
+   * projeto).
+   */
   const placaLargura = 50;
   const placaAltura = placaLargura * (18 / 25);
   const placaX = xColunaB + (LARGURA_COLUNA_B - placaLargura) / 2;
   const placaY = yColunaB + 10;
-  caixaPreenchida(placaX, placaY, placaLargura, placaAltura, "#facc15");
-  texto(placaX + 3, placaY + 8, "ATENÇÃO", FS_TITULO);
-  texto(placaX + 3, placaY + 16, "RISCO DE CHOQUE\nELÉTRICO", 2.8);
-  texto(placaX + 3, placaY + placaAltura - 6, "GERAÇÃO PRÓPRIA", 2.8);
+  const boxDetalhePlaca: RetanguloMm = { x: placaX, y: placaY, largura: placaLargura, altura: placaAltura };
   texto(placaX - 2, placaY + placaAltura + 7, "25 cm (L) × 18 cm (A)", 4.2);
   yColunaB += ALTURA_DETALHE + GAP_ENTRE_CAIXAS_COLUNA;
 
@@ -1015,5 +1039,5 @@ export function construirGeometriaDiagramaFv(
   }
 
   const geometriaMarcada = g.map((el) => ({ ...el, origemGeradorId: ORIGEM_GERADOR_DIAGRAMA_FV }));
-  return { geometria: geometriaMarcada, boxPadraoEntradaRepresentativo };
+  return { geometria: geometriaMarcada, boxPadraoEntradaRepresentativo, boxDetalhePlaca };
 }

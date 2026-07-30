@@ -266,3 +266,4 @@ export async function marcarConversaLidaAdmin(uid: string): Promise<void> {
     // Falha silenciosa -- só afeta a bolinha de notificação, não é crítico.
   }
 }
+

@@ -151,8 +151,17 @@ export function TitleBlockLayer({ formato, orientacao, carimbo }: TitleBlockLaye
 
   // --- Campo de Notas (Iteração 19) ---
   const larguraNotas = larguraTotal - 4;
-  const fsNotasLabel = 2.6;
-  const fsNotasCorpo = 2.3;
+  // Iteração 46 -- eram 2.6/2.3mm (bem menores que o resto do desenho),
+  // pedido do usuário: "corrija o tamanho do texto no campo de inserir
+  // notas... quero o tamanho da caixa de texto igual o texto do
+  // diagrama". `FS_DIAGRAMA` casa com `FS_LABEL`/`FS_CORPO` de
+  // `diagramaFv.ts` (4.6mm -- o tamanho de texto "de corpo" usado no
+  // resto do diagrama gerado automaticamente); o rótulo "NOTAS:" fica um
+  // pouco maior, mesma proporção de antes (~1.13x), só pra manter alguma
+  // hierarquia visual entre cabeçalho e corpo agora que o negrito saiu.
+  const FS_DIAGRAMA = 4.6;
+  const fsNotasCorpo = FS_DIAGRAMA;
+  const fsNotasLabel = FS_DIAGRAMA * 1.13;
   const linhasNotas = quebrarLinhasTexto(carimbo.notas || "", larguraNotas, fsNotasCorpo, 10);
   const linhasNotasExibidas = linhasNotas.length > 0 ? linhasNotas : [""];
   const alturaLinhaNotas = fsNotasCorpo * 1.5;
@@ -188,17 +197,11 @@ export function TitleBlockLayer({ formato, orientacao, carimbo }: TitleBlockLaye
   const campo = (x: number, y: number, w: number, label: string, valor: string) => (
     <>
       <Text x={x + 1.5} y={y + 0.8} width={w - 3} text={label} fontSize={fsLabel} fill={COR_LABEL} />
-      <Text
-        x={x + 1.5}
-        y={y + fsLabel + 1.2}
-        width={w - 3}
-        text={valor || "—"}
-        fontSize={fsValor}
-        fill={COR_TEXTO}
-        fontStyle="bold"
-        ellipsis
-        wrap="none"
-      />
+      {/* Iteração 46: negrito removido do valor -- pedido do usuário
+          ("retire o negrito do carimbo nao precisa, mantenha o tamanho
+          das letras"). Só o `fontStyle="bold"` sai; `fontSize={fsValor}`
+          continua o mesmo de sempre. */}
+      <Text x={x + 1.5} y={y + fsLabel + 1.2} width={w - 3} text={valor || "—"} fontSize={fsValor} fill={COR_TEXTO} ellipsis wrap="none" />
     </>
   );
 
@@ -226,17 +229,8 @@ export function TitleBlockLayer({ formato, orientacao, carimbo }: TitleBlockLaye
     return (
       <>
         <Text x={x + 1.5} y={y + 0.8} width={w - 3} text="RESPONSÁVEL TÉCNICO" fontSize={fsLabel} fill={COR_LABEL} />
-        <Text
-          x={x + 1.5}
-          y={yValor}
-          width={w - 3}
-          text={carimbo.responsavel || "—"}
-          fontSize={fsValorResp}
-          fill={COR_TEXTO}
-          fontStyle="bold"
-          ellipsis
-          wrap="none"
-        />
+        {/* Iteração 46: negrito removido -- ver comentário em `campo()`. */}
+        <Text x={x + 1.5} y={yValor} width={w - 3} text={carimbo.responsavel || "—"} fontSize={fsValorResp} fill={COR_TEXTO} ellipsis wrap="none" />
         {temCrea && (
           <Text
             x={x + 1.5}
@@ -245,7 +239,39 @@ export function TitleBlockLayer({ formato, orientacao, carimbo }: TitleBlockLaye
             text={`CREA ${carimbo.crea}`}
             fontSize={fsValorResp}
             fill={COR_TEXTO}
-            fontStyle="bold"
+            ellipsis
+            wrap="none"
+          />
+        )}
+      </>
+    );
+  };
+
+  /**
+   * Iteração 46 -- campo dedicado pro "CLIENTE" com CPF opcional numa 2ª
+   * linha (pedido do usuário: "falta o campo de digitar o cpf do
+   * cliente") -- mesmo raciocínio/estrutura de `campoResponsavelTecnico`
+   * logo acima (nome + CREA numa 2ª linha): evita que `truncarTexto`/
+   * `ellipsis` corte o CPF junto do nome se os dois fossem concatenados
+   * numa string só.
+   */
+  const campoClienteComCpf = (x: number, y: number, w: number) => {
+    const temCpf = !!carimbo.cpfCliente;
+    const fsValorCliente = temCpf ? fsValor * 0.72 : fsValor;
+    const linhaAlturaCliente = fsValorCliente * 1.2;
+    const yValor = y + fsLabel + 1.2;
+    return (
+      <>
+        <Text x={x + 1.5} y={y + 0.8} width={w - 3} text="CLIENTE" fontSize={fsLabel} fill={COR_LABEL} />
+        <Text x={x + 1.5} y={yValor} width={w - 3} text={carimbo.cliente || "—"} fontSize={fsValorCliente} fill={COR_TEXTO} ellipsis wrap="none" />
+        {temCpf && (
+          <Text
+            x={x + 1.5}
+            y={yValor + linhaAlturaCliente}
+            width={w - 3}
+            text={`CPF ${carimbo.cpfCliente}`}
+            fontSize={fsValorCliente}
+            fill={COR_TEXTO}
             ellipsis
             wrap="none"
           />
@@ -258,7 +284,8 @@ export function TitleBlockLayer({ formato, orientacao, carimbo }: TitleBlockLaye
     <Layer listening={false}>
       {/* Campo de Notas (Iteração 19): SEMPRE acima de tudo, largura total do carimbo. */}
       <Rect x={bx} y={byNotas} width={larguraTotal} height={alturaNotas} stroke={COR_BORDA} strokeWidth={0.6} fill="#ffffff" />
-      <Text x={bx + 2} y={byNotas + 0.6} text="NOTAS:" fontSize={fsNotasLabel} fontStyle="bold" fill={COR_TEXTO} />
+      {/* Iteração 46: negrito removido -- ver comentário em `campo()`. */}
+      <Text x={bx + 2} y={byNotas + 0.6} text="NOTAS:" fontSize={fsNotasLabel} fill={COR_TEXTO} />
       {linhasNotasExibidas.map((linha, i) => (
         <Text
           key={i}
@@ -336,14 +363,13 @@ export function TitleBlockLayer({ formato, orientacao, carimbo }: TitleBlockLaye
       {/* Moldura externa da grade principal */}
       <Rect x={bx} y={by} width={larguraTotal} height={altura} stroke={COR_BORDA} strokeWidth={0.6} fill="#ffffff" />
 
-      {/* Linha 1: título do projeto (linha inteira) */}
+      {/* Linha 1: título do projeto (linha inteira). Iteração 46: negrito removido -- ver comentário em `campo()`. */}
       <Text
         x={textoX + 2}
         y={yTitulo + alturaTitulo * 0.22}
         width={larguraTexto - 4}
         text={carimbo.titulo || "TÍTULO DO PROJETO"}
         fontSize={fsTitulo}
-        fontStyle="bold"
         fill={COR_TEXTO}
         align="center"
         ellipsis
@@ -355,8 +381,8 @@ export function TitleBlockLayer({ formato, orientacao, carimbo }: TitleBlockLaye
       {campo(textoX, yLinha2, larguraTexto, "ENDEREÇO DO CLIENTE", carimbo.enderecoCliente)}
       <Line points={[textoX, yLinha3, textoX + larguraTexto, yLinha3]} stroke={COR_BORDA} strokeWidth={0.4} />
 
-      {/* Linha 3: Cliente | Responsável técnico (CREA) -- 2 colunas */}
-      {campo(textoX, yLinha3, larguraTexto / 2, "CLIENTE", carimbo.cliente)}
+      {/* Linha 3: Cliente (+ CPF) | Responsável técnico (CREA) -- 2 colunas */}
+      {campoClienteComCpf(textoX, yLinha3, larguraTexto / 2)}
       <Line points={[textoX + larguraTexto / 2, yLinha3, textoX + larguraTexto / 2, yLinha4]} stroke={COR_BORDA} strokeWidth={0.3} />
       {campoResponsavelTecnico(textoX + larguraTexto / 2, yLinha3, larguraTexto / 2)}
       <Line points={[textoX, yLinha4, textoX + larguraTexto, yLinha4]} stroke={COR_BORDA} strokeWidth={0.4} />

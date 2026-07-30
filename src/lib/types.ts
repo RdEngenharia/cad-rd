@@ -394,6 +394,15 @@ export interface Carimbo {
   /** Quando falso, o carimbo não é desenhado no canvas nem exportado no PDF. */
   visivel: boolean;
   cliente: string;
+  /**
+   * Iteração 46 -- CPF do cliente (pessoa física), pedido do usuário:
+   * "falta o campo de digitar o cpf do cliente". Exibido numa 2ª linha
+   * logo abaixo do nome do cliente (mesmo padrão já usado pelo CREA
+   * abaixo do responsável técnico -- ver `campoClienteComCpf` em
+   * `TitleBlockLayer.tsx`/`pdfExport.ts`/`dxfExport.ts`), só quando
+   * preenchido.
+   */
+  cpfCliente: string;
   titulo: string;
   responsavel: string;
   /** Registro CREA/CFT do responsável técnico. */
@@ -451,10 +460,37 @@ export interface Carimbo {
   assinaturaDataUrl?: string;
 }
 
+/**
+ * Iteração 46 -- texto padrão do campo "Notas" para projetos fotovoltaicos
+ * (pedido do usuário: "vou te mandar o texto real que usamos padrao para
+ * projetos fotovoltaicos voce ja pode deixar ele padrao e ajustavel").
+ * Preenche o campo automaticamente em todo projeto NOVO (`carimboVazio`)
+ * -- continua um campo de texto livre normal, o usuário pode editar/
+ * apagar/trocar à vontade a qualquer momento (não é fixo). Projetos já
+ * salvos ANTES desta mudança mantêm o que já estiver gravado (mesmo que
+ * vazio) -- ver o merge com `carimboVazio()` em `store.ts` (carregamento/
+ * migração), que só usa este padrão quando o campo está *ausente*, nunca
+ * sobrescrevendo um valor (incl. string vazia) já salvo.
+ *
+ * Em maiúsculas -- pedido do usuário: "preciso que todo o texto digitado
+ * fique maiusculo" (ver também o `.toUpperCase()` aplicado a cada campo em
+ * `TitleBlockPanel.tsx`).
+ */
+export const NOTAS_PADRAO_FOTOVOLTAICO = [
+  "* A seção transversal dos condutores foram dimensionados em função da corrente máxima e capacidade de condução de corrente, permitindo-se utilizar até uma faixa acima da descrita em cada trecho dessa planta (exceto no padrão de medição);",
+  "* Cabos em corrente contínua, na tensão elétrica máxima de 1.8KV, isolação em XLPE e cobertura em XLPE (termofixo) com UV;",
+  "* Cabos em corrente alternada, na tensão máxima de 1KV, isolação e cobertura em PVC;",
+  "* Cada string será protegida individualmente através das proteções internas do inversor ou por fusível e DPS CC;",
+  "* A seção transversal dos condutores foram dimensionados em função da corrente máxima de saída e capacidade de condução de corrente, permitindo-se utilizar até uma faixa acima da descrita em cada trecho dessa planta (exceto no padrão de medição).",
+]
+  .join("\n")
+  .toUpperCase();
+
 export function carimboVazio(): Carimbo {
   return {
     visivel: true,
     cliente: "",
+    cpfCliente: "",
     titulo: "",
     responsavel: "",
     crea: "",
@@ -465,7 +501,7 @@ export function carimboVazio(): Carimbo {
     contaContrato: "",
     tipoLigacao: "",
     escalaCarimbo: 1,
-    notas: "",
+    notas: NOTAS_PADRAO_FOTOVOLTAICO,
   };
 }
 

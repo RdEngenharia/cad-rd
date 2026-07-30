@@ -864,8 +864,14 @@ function desenharCarimboPdf(
   // que tem uma caixa "NOTAS:" imediatamente acima do carimbo) -- muda de
   // projeto pra projeto, por isso vem de `carimbo.notas` em vez de fixo.
   const larguraNotas = larguraTotal - 4;
-  const fsNotasLabelMm = 2.6;
-  const fsNotasCorpoMm = 2.3;
+  // Iteração 46 -- mesma correção de tamanho de `TitleBlockLayer.tsx`:
+  // pedido do usuário ("corrija o tamanho do texto no campo de inserir
+  // notas... quero o tamanho da caixa de texto igual o texto do
+  // diagrama") -- `FS_DIAGRAMA_MM` casa com `FS_LABEL`/`FS_CORPO` de
+  // `diagramaFv.ts` (4.6mm).
+  const FS_DIAGRAMA_MM = 4.6;
+  const fsNotasCorpoMm = FS_DIAGRAMA_MM;
+  const fsNotasLabelMm = FS_DIAGRAMA_MM * 1.13;
   doc.setFont("helvetica", "normal");
   doc.setFontSize(fsNotasCorpoMm * escalaTexto * MM_PARA_PT);
   const linhasNotas = quebrarLinhasTexto(doc, carimbo.notas || "", larguraNotas, 10);
@@ -878,7 +884,9 @@ function desenharCarimboPdf(
   doc.setDrawColor(...corBorda);
   doc.setLineWidth(0.25);
   doc.rect(bx, byNotas, larguraTotal, alturaNotas, "S");
-  doc.setFont("helvetica", "bold");
+  // Iteração 46: negrito removido -- pedido do usuário ("retire o negrito
+  // do carimbo nao precisa, mantenha o tamanho das letras").
+  doc.setFont("helvetica", "normal");
   doc.setFontSize(fsNotasLabelMm * escalaTexto * MM_PARA_PT);
   doc.setTextColor(...corValor);
   doc.text("NOTAS:", bx + 2, byNotas + fsNotasLabelMm + 0.6);
@@ -1012,7 +1020,8 @@ function desenharCarimboPdf(
   const fsLabelMm = Math.max(1.7, alturaLinha2 * 0.26);
   const fsValorMm = Math.max(1.9, alturaLinha2 * 0.32);
 
-  doc.setFont("helvetica", "bold");
+  // Iteração 46: negrito removido -- ver comentário acima, junto de "NOTAS:".
+  doc.setFont("helvetica", "normal");
   doc.setFontSize(fsTituloMm * escalaTexto * MM_PARA_PT);
   doc.setTextColor(...corValor);
   const tituloTxt = truncarTexto(doc, carimbo.titulo || "TÍTULO DO PROJETO", larguraTexto - 4);
@@ -1024,7 +1033,8 @@ function desenharCarimboPdf(
     doc.setTextColor(...corLabel);
     doc.text(truncarTexto(doc, label, w - 3), x + 1.5, y + fsLabelMm + 0.6);
 
-    doc.setFont("helvetica", "bold");
+    // Iteração 46: negrito removido do valor -- ver comentário acima, junto de "NOTAS:".
+    doc.setFont("helvetica", "normal");
     doc.setFontSize(fsValorMm * escalaTexto * MM_PARA_PT);
     doc.setTextColor(...corValor);
     doc.text(truncarTexto(doc, valor || "—", w - 3), x + 1.5, y + fsLabelMm + fsValorMm + 1.4);
@@ -1051,7 +1061,8 @@ function desenharCarimboPdf(
     const linhaAlturaResp = fsValorRespMm * 1.2;
     const yValor = y + fsLabelMm + fsValorRespMm + 1.4;
 
-    doc.setFont("helvetica", "bold");
+    // Iteração 46: negrito removido -- ver comentário acima, junto de "NOTAS:".
+    doc.setFont("helvetica", "normal");
     doc.setFontSize(fsValorRespMm * escalaTexto * MM_PARA_PT);
     doc.setTextColor(...corValor);
     doc.text(truncarTexto(doc, carimbo.responsavel || "—", w - 3), x + 1.5, yValor);
@@ -1060,11 +1071,37 @@ function desenharCarimboPdf(
     }
   };
 
+  /**
+   * Iteração 46 -- campo dedicado pro "CLIENTE" com CPF opcional numa 2ª
+   * linha (pedido do usuário: "falta o campo de digitar o cpf do
+   * cliente") -- mesmo raciocínio de `campoResponsavelTecnico` acima
+   * (nome + CREA numa 2ª linha), espelhando `TitleBlockLayer.tsx#campoClienteComCpf`.
+   */
+  const campoClienteComCpf = (x: number, y: number, w: number) => {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(fsLabelMm * escalaTexto * MM_PARA_PT);
+    doc.setTextColor(...corLabel);
+    doc.text(truncarTexto(doc, "CLIENTE", w - 3), x + 1.5, y + fsLabelMm + 0.6);
+
+    const temCpf = !!carimbo.cpfCliente;
+    const fsValorClienteMm = temCpf ? fsValorMm * 0.72 : fsValorMm;
+    const linhaAlturaCliente = fsValorClienteMm * 1.2;
+    const yValor = y + fsLabelMm + fsValorClienteMm + 1.4;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(fsValorClienteMm * escalaTexto * MM_PARA_PT);
+    doc.setTextColor(...corValor);
+    doc.text(truncarTexto(doc, carimbo.cliente || "—", w - 3), x + 1.5, yValor);
+    if (temCpf) {
+      doc.text(truncarTexto(doc, `CPF ${carimbo.cpfCliente}`, w - 3), x + 1.5, yValor + linhaAlturaCliente);
+    }
+  };
+
   // Linha 2 (Iteração 12c): endereço completo do cliente -- linha inteira
   campo(textoX, yLinha2, larguraTexto, "ENDEREÇO DO CLIENTE", carimbo.enderecoCliente);
 
-  // Linha 3: Cliente | Responsável técnico
-  campo(textoX, yLinha3, larguraTexto / 2, "CLIENTE", carimbo.cliente);
+  // Linha 3: Cliente (+ CPF) | Responsável técnico
+  campoClienteComCpf(textoX, yLinha3, larguraTexto / 2);
   campoResponsavelTecnico(textoX + larguraTexto / 2, yLinha3, larguraTexto / 2);
 
   // Linha 4 (Iteração 12c): Conta Contrato | Tipo de Ligação -- exigidos pela concessionária
