@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useCadStore } from "@/lib/store";
+import { resolverCamada } from "@/lib/layers";
 import { FORMATOS_FOLHA, type FormatoFolha } from "@/lib/types";
 import { deMm, paraMm, ROTULO_UNIDADE, type UnidadeDesenho } from "@/lib/unidades";
 import { NOME_FERRAMENTA } from "./ToolRuler";
@@ -172,6 +173,21 @@ export function StatusBar() {
   const osnapAlvo = useCadStore((s) => s.osnapAlvo);
   const osnapTipo = useCadStore((s) => s.osnapTipo);
   const selecionadoIds = useCadStore((s) => s.selecionadoIds);
+  // Iteração 46 -- "Camada: NOME" na barra de status (pedido do usuário:
+  // "quero que o nome das camadas fique visivel, preciso saber sobre qual
+  // item do desenho é a camada só de olhar"). Prioriza o elemento sob o
+  // mouse agora (`elementoSobMouseId`, atualizado em `GeometryLayer.tsx`);
+  // sem hover nenhum, cai pro elemento selecionado -- só quando a seleção
+  // é de UM elemento só, pra não mostrar um nome "errado" quando há vários
+  // selecionados com camadas diferentes.
+  const elementoSobMouseId = useCadStore((s) => s.elementoSobMouseId);
+  const geometria = useCadStore((s) => s.projeto.geometria);
+  const camadas = useCadStore((s) => s.projeto.camadas);
+  const idParaMostrarCamada = elementoSobMouseId ?? (selecionadoIds.length === 1 ? selecionadoIds[0] : null);
+  const elementoParaMostrarCamada = idParaMostrarCamada ? geometria.find((g) => g.id === idParaMostrarCamada) : undefined;
+  const nomeCamadaExibida = elementoParaMostrarCamada
+    ? resolverCamada(camadas, elementoParaMostrarCamada.camada).nome
+    : null;
   const unidadeDesenho = useCadStore((s) => s.unidadeDesenho);
   const setUnidadeDesenho = useCadStore((s) => s.setUnidadeDesenho);
   const orthoAtivo = useCadStore((s) => s.orthoAtivo);
@@ -211,6 +227,9 @@ export function StatusBar() {
         )}
         {selecionadoIds.length > 0 && (
           <span className="text-blue-600">{selecionadoIds.length} selecionado(s)</span>
+        )}
+        {nomeCamadaExibida && (
+          <span className="font-semibold text-slate-600">Camada: {nomeCamadaExibida}</span>
         )}
         <span className="text-slate-400">Roda = zoom · Botão do meio/direito = pan</span>
       </div>

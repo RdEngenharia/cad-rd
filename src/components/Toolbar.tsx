@@ -14,14 +14,15 @@ import { useAutoSalvar } from "@/lib/useAutoSalvar";
  * ativo) com exportação para PDF vetorial, e o widget de conta (`AuthPanel`).
  *
  * Iteração 34 (pedido do usuário): os botões antigos "Novo" / "Salvar no
- * Firestore" / "Carregar" (por ID manual) e o painel de depuração
- * "{ } JSON" saíram daqui -- Novo/Salvar/Abrir agora vivem só no modal
- * "📁 Projetos" (`ProjectManagerModal`, que também abre sozinho ao
- * carregar o app, ver `Editor.tsx`), e o painel JSON ficou reservado para
- * uso interno (atalho `Ctrl+J`), nunca visível por padrão. O usuário
- * também pediu para nenhuma tela mencionar como/onde o projeto é
- * armazenado (nome de provedores de nuvem etc.) -- por isso as mensagens
- * de status aqui usam só termos genéricos ("nuvem"/"neste dispositivo").
+ * Firestore" / "Carregar" (por ID manual) saíram daqui -- Novo/Salvar/Abrir
+ * agora vivem só no modal "📁 Projetos" (`ProjectManagerModal`, que também
+ * abre sozinho ao carregar o app, ver `Editor.tsx`). O usuário também
+ * pediu para nenhuma tela mencionar como/onde o projeto é armazenado
+ * (nome de provedores de nuvem etc.) -- por isso as mensagens de status
+ * aqui usam só termos genéricos ("nuvem"/"neste dispositivo").
+ *
+ * Iteração 46: o painel de depuração "{ } JSON" (atalho `Ctrl+J`, mencionado
+ * aqui antes) foi removido de vez do app -- ver `Editor.tsx`.
  * -----------------------------------------------------------------------
  */
 export function Toolbar() {

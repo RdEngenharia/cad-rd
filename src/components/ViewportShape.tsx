@@ -35,6 +35,16 @@ interface ViewportShapeProps {
   destacarApagar?: boolean;
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
+  /**
+   * Iteração 46 -- clique no rótulo "ESC 1:X" abre o menu de escala
+   * flutuante (`ViewportScaleMenu.tsx`) na posição de tela do clique, em
+   * vez de precisar selecionar a borda e procurar o campo no painel
+   * "Propriedades" à direita. Opcional (default: rótulo só informativo,
+   * sem clique) -- os dois lugares que usam `ViewportShape` (Desenho e
+   * Prancha) passam sua própria versão porque cada um resolve o "alvo"
+   * do jeito certo (`atualizarViewport` vs `atualizarViewportDaPrancha`).
+   */
+  onClickEscala?: (e: KonvaEventObject<MouseEvent | TouchEvent>) => void;
 }
 
 const NOOP = () => {};
@@ -195,7 +205,20 @@ export function desenharSomenteLeitura(g: Geometria, camada: Camada, escala: num
  * ou não no PDF exportado, ver `pdfExport.ts`).
  * -----------------------------------------------------------------------
  */
-export function ViewportShape({ geo, geometriaCompleta, camadas, xrefs = [], scale, selecionado, ativo, onClick, destacarApagar, onMouseEnter, onMouseLeave }: ViewportShapeProps) {
+export function ViewportShape({
+  geo,
+  geometriaCompleta,
+  camadas,
+  xrefs = [],
+  scale,
+  selecionado,
+  ativo,
+  onClick,
+  destacarApagar,
+  onMouseEnter,
+  onMouseLeave,
+  onClickEscala,
+}: ViewportShapeProps) {
   const modelScale = geo.modelScale || 1;
   // Escala EFETIVA do conteúdo interno: a composição do zoom do Stage
   // principal com a escala PRÓPRIA do Group da câmera local
@@ -249,7 +272,9 @@ export function ViewportShape({ geo, geometriaCompleta, camadas, xrefs = [], sca
         text={`ESC 1:${Math.round(modelScale)}${ativo ? " — MODEL ATIVO (clique 2x fora p/ sair)" : ""}${geo.bordaVisivel ? "" : " (borda oculta no PDF)"}`}
         fontSize={8 / scale}
         fill={ativo ? "#7c3aed" : "#64748b"}
-        listening={false}
+        listening={Boolean(onClickEscala)}
+        onClick={onClickEscala}
+        onTap={onClickEscala}
       />
     </>
   );

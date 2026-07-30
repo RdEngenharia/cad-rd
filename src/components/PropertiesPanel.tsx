@@ -3,16 +3,8 @@
 import { useEffect, useState } from "react";
 import { useCadStore } from "@/lib/store";
 import { HACHURA_OPCOES } from "@/lib/hachura";
+import { ESCALAS_RAPIDAS } from "@/lib/escalasViewport";
 import type { HachuraTipo } from "@/lib/types";
-
-/**
- * Escalas de impressão "padrão" (1:N) mais comuns em desenho técnico/
- * ABNT -- botão de escolha rápida (Iteração 14), equivalente ao
- * comando de zoom/escala "nXP" do AutoCAD: em vez de digitar o número
- * cru no campo de "Escala de impressão", o usuário escolhe direto de
- * uma lista e o `modelScale` do Viewport é ajustado com 1 clique.
- */
-const ESCALAS_RAPIDAS = [1, 2, 5, 10, 20, 25, 50, 75, 100, 125, 150, 200, 250, 500, 1000, 2000];
 
 /**
  * PropertiesPanel

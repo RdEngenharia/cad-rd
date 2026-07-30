@@ -188,6 +188,8 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
   const inserirVerticeNoMeio = useCadStore((s) => s.inserirVerticeNoMeio);
   const abrirMenuVertice = useCadStore((s) => s.abrirMenuVertice);
   const viewportAtivoId = useCadStore((s) => s.viewportAtivoId);
+  const setElementoSobMouseId = useCadStore((s) => s.setElementoSobMouseId);
+  const abrirMenuEscalaViewport = useCadStore((s) => s.abrirMenuEscalaViewport);
 
   // Iteração 41 -- hover vermelho do Apagar (ver `COR_APAGAR_HOVER`
   // acima). Estado só de UI (não precisa viver no store global -- nada
@@ -207,12 +209,29 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
     setFerramentaAnteriorParaHover(ferramenta);
     if (ferramenta !== "apagar" && apagarHoverId !== null) setApagarHoverId(null);
   }
-  /** Handlers de hover só ativos com Apagar selecionado -- em qualquer outra ferramenta não faz nada (e não força re-render à toa). */
+  /**
+   * Handlers de hover por elemento. O destaque vermelho (`apagarHoverId`)
+   * só é ativado com a ferramenta Apagar selecionada -- em qualquer outra
+   * ferramenta não força re-render à toa.
+   *
+   * Iteração 46 -- além disso, SEMPRE (qualquer ferramenta) atualiza
+   * `elementoSobMouseId` no store global, que alimenta o indicador
+   * "Camada: NOME" da `StatusBar.tsx`. Usa `useCadStore.getState()` no
+   * `onMouseLeave` (em vez do valor fechado na renderização) pra só
+   * limpar quando o elemento que está saindo ainda é o que está marcado
+   * como "sob o mouse" agora -- evita que um leave "atrasado" apague por
+   * engano o hover de um elemento diferente que já ganhou foco.
+   */
   function hoverApagarHandlers(id: string) {
-    if (ferramenta !== "apagar") return {};
     return {
-      onMouseEnter: () => setApagarHoverId(id),
-      onMouseLeave: () => setApagarHoverId((atual) => (atual === id ? null : atual)),
+      onMouseEnter: () => {
+        setElementoSobMouseId(id);
+        if (ferramenta === "apagar") setApagarHoverId(id);
+      },
+      onMouseLeave: () => {
+        if (useCadStore.getState().elementoSobMouseId === id) setElementoSobMouseId(null);
+        if (ferramenta === "apagar") setApagarHoverId((atual) => (atual === id ? null : atual));
+      },
     };
   }
 
@@ -632,6 +651,11 @@ export function GeometryLayer({ viewport }: GeometryLayerProps) {
               destacarApagar={emMiraApagar}
               ativo={viewportAtivoId === g.id}
               onClick={handleShapeClick(g.id)}
+              onClickEscala={(e) => {
+                e.cancelBubble = true;
+                if (!(e.evt instanceof MouseEvent)) return;
+                abrirMenuEscalaViewport(e.evt.clientX, e.evt.clientY, g.modelScale || 1, { tipo: "geometria", id: g.id });
+              }}
               {...hoverApagarHandlers(g.id)}
             />
           );

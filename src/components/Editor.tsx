@@ -1,13 +1,12 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Toolbar } from "./Toolbar";
 import { ToolRuler } from "./ToolRuler";
 import { Sidebar } from "./Sidebar";
 import { CommandLine } from "./CommandLine";
 import { StatusBar } from "./StatusBar";
-import { JsonPanel } from "./JsonPanel";
 import { CalibrationModal } from "./CalibrationModal";
 import { ProjectManagerModal } from "./ProjectManagerModal";
 import { SuportePanel } from "./SuportePanel";
@@ -37,9 +36,6 @@ const CanvasStage = dynamic(() => import("./CanvasStage").then((m) => m.CanvasSt
  * reidratação dos XREFs a partir do IndexedDB local.
  *
  * Iteração 34 (pedido do usuário):
- *  - O painel JSON ("{ } JSON") não tem mais botão na Toolbar nem aparece
- *    por padrão -- é só uma ferramenta interna de depuração, ligada pelo
- *    atalho `Ctrl+J` (nunca visível de outra forma).
  *  - O modal "📁 Projetos" (`ProjectManagerModal`) agora abre sozinho
  *    assim que o app carrega, igual à tela inicial do AutoCAD/Word ("Novo
  *    desenho" / "Abrir desenho existente") -- o usuário fecha ele (✕) se
@@ -47,10 +43,15 @@ const CanvasStage = dynamic(() => import("./CanvasStage").then((m) => m.CanvasSt
  *  - A barra de comando por IA no rodapé (`AiCommandLine`) foi removida
  *    da tela (pedido explícito: "retire tambem o botao IA do rodapé, não
  *    vai existir").
+ *
+ * Iteração 46 (pedido do usuário): o painel JSON de depuração interno
+ * ("{ } JSON", ligado pelo atalho `Ctrl+J`, aparentemente acionado sem
+ * querer) foi removido de vez -- "nao gostei desse json na tela pode
+ * retirar". O atalho `Ctrl+J` não faz mais nada e o arquivo
+ * `JsonPanel.tsx` foi apagado do projeto.
  * -----------------------------------------------------------------------
  */
 export function Editor() {
-  const [jsonPanelAberto, setJsonPanelAberto] = useState(false);
   const garantirIdProjeto = useCadStore((s) => s.garantirIdProjeto);
   const toolbarPosicao = useCadStore((s) => s.toolbarPosicao);
   const abrirGerenciadorProjetos = useCadStore((s) => s.abrirGerenciadorProjetos);
@@ -73,19 +74,6 @@ export function Editor() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Atalho Ctrl+J -- liga/desliga o painel JSON de depuração (nunca tem
-  // botão visível, ver comentário da função acima).
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "j") {
-        e.preventDefault();
-        setJsonPanelAberto((v) => !v);
-      }
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
-
   return (
     <div className="flex h-dvh w-full flex-col overflow-hidden bg-slate-100">
       <Toolbar />
@@ -102,7 +90,6 @@ export function Editor() {
           <CommandLine />
         </div>
         {toolbarPosicao === "RIGHT" && <ToolRuler orientacao="RIGHT" />}
-        {jsonPanelAberto && <JsonPanel />}
       </div>
       <CalibrationModal />
       <ProjectManagerModal />

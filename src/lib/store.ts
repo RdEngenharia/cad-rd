@@ -494,6 +494,18 @@ interface CadState {
   setPontoRascunho: (p: Ponto | null) => void;
   setPonteiroMundo: (p: Ponto | null) => void;
   setOsnapAlvo: (p: Ponto | null, tipo?: TipoOsnap | null) => void;
+  /**
+   * Iteração 46 -- id do elemento de geometria que o mouse está sobrevoando
+   * agora (qualquer ferramenta, não só "apagar"; ver `GeometryLayer.tsx`,
+   * mesmos handlers de `hoverApagarHandlers`). `null` quando o mouse não
+   * está sobre nenhum elemento. Existe só pra alimentar o indicador
+   * "Camada: NOME" da `StatusBar.tsx` -- pedido do usuário: "quero que o
+   * nome das camadas fique visivel, preciso saber sobre qual item do
+   * desenho é a camada só de olhar". Estado efêmero de UI, não
+   * persistido junto do projeto (mesmo padrão de `ponteiroMundo`).
+   */
+  elementoSobMouseId: string | null;
+  setElementoSobMouseId: (id: string | null) => void;
   cancelarDesenho: () => void;
   addXref: (x: Omit<XRef, "id">) => string;
   removeXref: (id: string) => void;
@@ -700,6 +712,31 @@ interface CadState {
   menuVerticeContexto: { id: string; indice: number; x: number; y: number } | null;
   abrirMenuVertice: (id: string, indice: number, x: number, y: number) => void;
   fecharMenuVertice: () => void;
+
+  /**
+   * Iteração 46 -- menu de escala flutuante (clicar no rótulo "ESC 1:X" de
+   * um viewport abre este menu, com a mesma lista `ESCALAS_RAPIDAS` que já
+   * existia só no painel de propriedades -- ver `ViewportScaleMenu.tsx`).
+   * `x`/`y` em coordenadas de TELA (client), mesmo padrão de
+   * `menuVerticeContexto`. `alvo` discrimina os DOIS lugares onde um
+   * `ViewportGeometria` pode morar: um viewport MV do Desenho (elemento
+   * solto em `projeto.geometria`, editado via `atualizarViewport`) ou um
+   * viewport de uma Prancha (dentro de `Prancha.viewports`, editado via
+   * `atualizarViewportDaPrancha`).
+   */
+  menuEscalaViewport: {
+    x: number;
+    y: number;
+    modelScaleAtual: number;
+    alvo: { tipo: "geometria"; id: string } | { tipo: "prancha"; pranchaId: string; viewportId: string };
+  } | null;
+  abrirMenuEscalaViewport: (
+    x: number,
+    y: number,
+    modelScaleAtual: number,
+    alvo: { tipo: "geometria"; id: string } | { tipo: "prancha"; pranchaId: string; viewportId: string }
+  ) => void;
+  fecharMenuEscalaViewport: () => void;
 
   // Autenticação + Gerenciador de Projetos na nuvem (Sprint 3) ---------------
   /** Usuário logado (mock local ou Firebase Auth de verdade -- ver `lib/auth.ts`); `null` = ninguém logado. */
@@ -1350,6 +1387,7 @@ export const useCadStore = create<CadState>((set, get) => {
   ponteiroMundo: null,
   osnapAlvo: null,
   osnapTipo: null,
+  elementoSobMouseId: null,
   historicoComandos: ["Digite um comando (L, C, E, M, CO...) e pressione Enter."],
   selecionadoIds: [],
   poligonoPontos: null,
@@ -1393,6 +1431,7 @@ export const useCadStore = create<CadState>((set, get) => {
   cotaP2: null,
 
   menuVerticeContexto: null,
+  menuEscalaViewport: null,
   usuario: null,
   projetosSalvos: [],
   gerenciadorProjetosAberto: false,
@@ -1566,6 +1605,8 @@ export const useCadStore = create<CadState>((set, get) => {
   setPonteiroMundo: (p) => set({ ponteiroMundo: p }),
 
   setOsnapAlvo: (p, tipo = null) => set({ osnapAlvo: p, osnapTipo: p ? tipo : null }),
+
+  setElementoSobMouseId: (id) => set({ elementoSobMouseId: id }),
 
   cancelarDesenho: () =>
     set({
@@ -2806,6 +2847,9 @@ export const useCadStore = create<CadState>((set, get) => {
 
   abrirMenuVertice: (id, indice, x, y) => set({ menuVerticeContexto: { id, indice, x, y } }),
   fecharMenuVertice: () => set({ menuVerticeContexto: null }),
+
+  abrirMenuEscalaViewport: (x, y, modelScaleAtual, alvo) => set({ menuEscalaViewport: { x, y, modelScaleAtual, alvo } }),
+  fecharMenuEscalaViewport: () => set({ menuEscalaViewport: null }),
 
   // Autenticação + Gerenciador de Projetos na nuvem (Sprint 3) ---------------
   setUsuario: (u) => set({ usuario: u }),

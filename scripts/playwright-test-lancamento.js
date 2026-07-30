@@ -5,7 +5,9 @@
  * APLICAÇÃO REAL rodando em localhost:3000: injeta geometria de uma casa
  * sintética direto no store, confirma que o botão fica desabilitado sem
  * seleção e habilitado com seleção, dispara a geração e confere o
- * resultado tanto no modal quanto no painel JSON de depuração (Ctrl+J).
+ * resultado tanto no modal quanto na geometria do projeto (lida direto do
+ * store via o binding de depuração -- Iteração 46: o painel JSON de
+ * depuração/Ctrl+J que antes servia pra isso foi removido do app).
  *
  * PRÉ-REQUISITO (não fica no código entregue): este script foi rodado
  * durante o desenvolvimento com um binding temporário de debug em
@@ -131,17 +133,13 @@ async function main() {
   await page.waitForTimeout(200);
 
   // -----------------------------------------------------------------------
-  // Confere a geometria de verdade via o painel JSON (Ctrl+J).
+  // Confere a geometria de verdade direto no store (Iteração 46 -- o painel
+  // JSON de depuração/Ctrl+J foi removido do app a pedido do usuário: "nao
+  // gostei desse json na tela pode retirar"; o binding `__cadStoreTeste`
+  // continua servindo pra inspecionar o projeto nos testes).
   // -----------------------------------------------------------------------
-  await page.keyboard.press("Control+j");
-  await page.waitForTimeout(200);
-  const jsonTexto = await page.locator("pre").first().textContent();
-  let projeto;
-  try {
-    projeto = JSON.parse(jsonTexto);
-  } catch (e) {
-    checar("painel JSON contém um JSON válido", false, String(e));
-  }
+  const projeto = await page.evaluate(() => window.__cadStoreTeste.getState().projeto);
+  checar("projeto lido do store (binding de depuração)", Boolean(projeto));
 
   if (projeto) {
     const todosBlocos = projeto.geometria.filter((g) => g.tipo === "bloco" && g.origemGeradorId === "lancamentoEletrico");
@@ -172,14 +170,6 @@ async function main() {
     // direita) -- confirma que ela não se sobrepõe ao desenho.
     checar("legenda ancorada à direita da casa (fora da bbox)", legendaBlocos.every((g) => g.x > 10480));
   }
-
-  // -----------------------------------------------------------------------
-  // Undo (Ctrl+Z) deve remover a geração inteira de uma vez (1 passo de
-  // undo, como os outros geradores) -- fecha o painel JSON antes (senão o
-  // foco no <pre> pode capturar o atalho).
-  // -----------------------------------------------------------------------
-  await page.keyboard.press("Control+j"); // fecha o painel JSON de novo antes do undo
-  await page.waitForTimeout(150);
 
   await page.screenshot({ path: "/tmp/lancamento-eletrico-resultado.png", fullPage: false });
 

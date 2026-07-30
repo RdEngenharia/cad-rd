@@ -52,6 +52,7 @@ export function PranchaLayer({ scale }: PranchaLayerProps) {
   const viewportPranchaSelecionadoId = useCadStore((s) => s.viewportPranchaSelecionadoId);
   const selecionarViewportPrancha = useCadStore((s) => s.selecionarViewportPrancha);
   const atualizarViewportDaPrancha = useCadStore((s) => s.atualizarViewportDaPrancha);
+  const abrirMenuEscalaViewport = useCadStore((s) => s.abrirMenuEscalaViewport);
   const ferramenta = useCadStore((s) => s.ferramenta);
   const prancha = pranchas.find((pr) => pr.id === prenchaAtivaId);
   // Iteração 12v: seleção/mover/redimensionar de um Viewport só deve
@@ -105,6 +106,15 @@ export function PranchaLayer({ scale }: PranchaLayerProps) {
             ativo={viewportAtivoId === v.id}
             onSelecionar={() => selecionarViewportPrancha(v.id)}
             onAtualizar={(patch) => atualizarViewportDaPrancha(prancha.id, v.id, patch)}
+            onClickEscala={(e) => {
+              e.cancelBubble = true;
+              if (!(e.evt instanceof MouseEvent)) return;
+              abrirMenuEscalaViewport(e.evt.clientX, e.evt.clientY, v.modelScale || 1, {
+                tipo: "prancha",
+                pranchaId: prancha.id,
+                viewportId: v.id,
+              });
+            }}
           />
         ))}
       </Layer>
@@ -124,6 +134,8 @@ interface PranchaViewportProps {
   ativo: boolean;
   onSelecionar: () => void;
   onAtualizar: (patch: Partial<Pick<ViewportGeometria, "x" | "y" | "largura" | "altura">>) => void;
+  /** Iteração 46 -- clique no rótulo "ESC 1:X" (ver `ViewportShape.tsx`), abre o menu de escala flutuante. */
+  onClickEscala: (e: KonvaEventObject<MouseEvent | TouchEvent>) => void;
 }
 
 /** Os 4 cantos redimensionáveis -- cada um arrasta mantendo o canto OPOSTO fixo. */
@@ -148,7 +160,7 @@ type Canto = (typeof CANTOS)[number];
  * persistido.
  * -----------------------------------------------------------------------
  */
-function PranchaViewport({ geo, geometriaCompleta, camadas, xrefs, scale, interativo, selecionado, ativo, onSelecionar, onAtualizar }: PranchaViewportProps) {
+function PranchaViewport({ geo, geometriaCompleta, camadas, xrefs, scale, interativo, selecionado, ativo, onSelecionar, onAtualizar, onClickEscala }: PranchaViewportProps) {
   const [overrideRect, setOverrideRect] = useState<{ x: number; y: number; largura: number; altura: number } | null>(null);
   const rect = overrideRect ?? { x: geo.x, y: geo.y, largura: geo.largura, altura: geo.altura };
   const geoExibido: ViewportGeometria = overrideRect ? { ...geo, ...overrideRect } : geo;
@@ -264,6 +276,7 @@ function PranchaViewport({ geo, geometriaCompleta, camadas, xrefs, scale, intera
           selecionado={selecionado}
           ativo={ativo}
           onClick={handleClickBorda}
+          onClickEscala={onClickEscala}
         />
       </Group>
 

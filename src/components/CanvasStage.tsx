@@ -19,6 +19,7 @@ import { GeometryLayer } from "./GeometryLayer";
 import { TitleBlockLayer } from "./TitleBlockLayer";
 import { PranchaLayer } from "./PranchaLayer";
 import { VertexContextMenu } from "./VertexContextMenu";
+import { ViewportScaleMenu } from "./ViewportScaleMenu";
 import { FERRAMENTAS_PERMITIDAS_EM_PRANCHA } from "./ToolRuler";
 
 // Iteração 29c: pedido do usuário ("quando tento ir diminuindo o zoom o
@@ -202,6 +203,7 @@ export function CanvasStage() {
   const adicionarPontoPolilinha = useCadStore((s) => s.adicionarPontoPolilinha);
   const fecharPolilinha = useCadStore((s) => s.fecharPolilinha);
   const fecharMenuVertice = useCadStore((s) => s.fecharMenuVertice);
+  const fecharMenuEscalaViewport = useCadStore((s) => s.fecharMenuEscalaViewport);
   const inserirPadraoConcessionaria = useCadStore((s) => s.inserirPadraoConcessionaria);
   const viewportAtivoId = useCadStore((s) => s.viewportAtivoId);
   const setViewportAtivo = useCadStore((s) => s.setViewportAtivo);
@@ -385,6 +387,7 @@ export function CanvasStage() {
       if (e.key === "Escape") {
         cancelarDesenho();
         fecharMenuVertice();
+        fecharMenuEscalaViewport();
       } else if (e.key === "F8") {
         // ORTHO (Iteração 39): F8 liga/desliga, igual ao AutoCAD de
         // verdade -- antes só dava pra alternar clicando no botão "ORTHO
@@ -511,6 +514,7 @@ export function CanvasStage() {
     desfazer,
     refazer,
     fecharMenuVertice,
+    fecharMenuEscalaViewport,
     selecionadoIds,
     copiarSelecaoParaAreaDeTransferencia,
     colarAoVivo,
@@ -1564,6 +1568,7 @@ export function CanvasStage() {
         </Stage>
       )}
       <VertexContextMenu />
+      <ViewportScaleMenu />
     </div>
   );
 }
