@@ -80,9 +80,8 @@ export default function PaginaTermos() {
       <h2 className="mt-6 text-base font-semibold text-slate-800">5. Disponibilidade durante o Beta</h2>
       <p className="mt-2">
         Por ser uma versão de testes, o Cad RD é oferecido &quot;como está&quot;, podendo apresentar instabilidades
-        -- por isso o autosave e o botão de baixar uma cópia do projeto (.json) existem, como uma camada extra de
-        segurança para o seu trabalho. Reportar problemas pelo &quot;💬 Sugestões&quot; ajuda a melhorar a
-        ferramenta pra todo mundo.
+        -- por isso o autosave existe, como uma camada extra de segurança para o seu trabalho. Reportar problemas
+        pelo &quot;💬 Sugestões&quot; ajuda a melhorar a ferramenta pra todo mundo.
       </p>
 
       <h2 className="mt-6 text-base font-semibold text-slate-800">6. Mudanças nestes Termos</h2>

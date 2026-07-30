@@ -1,7 +1,7 @@
 /**
  * scripts/playwright-test-iteracao46-camada-statusbar-escala-viewport-sem-json.js
  * -----------------------------------------------------------------------
- * Iteração 46 -- cobre os 3 pedidos do usuário desta rodada:
+ * Iteração 46 -- cobre os pedidos do usuário desta rodada:
  *
  *   1) "quero que o nome das camadas fique visivel, preciso saber sobre
  *      qual item do desenho é a camada só de olhar" -- resposta escolhida:
@@ -17,6 +17,13 @@
  *
  *   3) "nao gostei desse json na tela pode retirar" -- o painel de
  *      depuração "{ } JSON" (atalho Ctrl+J) foi removido de vez.
+ *
+ *   4) (continuação) "voce entendeu errado a ultima instrucao, o nome das
+ *      layers precisam ser lidas por completo no painel a esquerda... nao
+ *      dar para ler o nome da leyer, so inicio" -- o pedido #1 acima
+ *      cobria a barra de status, mas o painel lateral "Camadas" também
+ *      cortava os nomes (ex.: "ELE..."); agora o nome tem uma linha
+ *      própria, sem truncar (quebra em 2 linhas se precisar).
  *
  * PRÉ-REQUISITO (não fica no código entregue): mesmo binding de debug
  * temporário `window.__cadStoreTeste` já usado nos scripts anteriores.
@@ -270,6 +277,40 @@ async function main() {
   checar('Ctrl+J NÃO abre mais o painel "Projeto (JSON)"', !painelJsonApareceu);
   const textoDepois = await page.evaluate(() => document.body.innerText.length);
   checar("Ctrl+J não altera a tela de forma nenhuma (nenhum painel novo aparece)", textoAntes === textoDepois, { textoAntes, textoDepois });
+
+  // =========================================================================
+  // PARTE 4: nome da camada legível POR COMPLETO no painel "Camadas" (sidebar)
+  // =========================================================================
+  // Iteração 46 (continuação) -- pedido do usuário: "voce entendeu errado a
+  // ultima instrucao, o nome das layers precisam ser lidas por completo no
+  // painel a esquerda... nao dar para ler o nome da layer, so inicio". A
+  // Parte 1 acima já cobre a barra de status (o pedido original); esta
+  // Parte cobre o painel lateral "Camadas" em si, onde os nomes ficavam
+  // cortados tipo "ELE..." por dividir a linha com o campo de espessura e o
+  // select de estilo.
+  console.log('\n=== Parte 4: nome da camada legível por completo no painel "Camadas" ===');
+
+  await page.evaluate(() => {
+    const s = window.__cadStoreTeste.getState();
+    if (!s.projeto.camadas["ELETRICA_LEGENDA"]) s.criarCamada("ELETRICA_LEGENDA", "#0ea5e9");
+    if (!s.projeto.camadas["QUADRO_DISTRIBUICAO_GERAL"]) s.criarCamada("QUADRO_DISTRIBUICAO_GERAL", "#ef4444");
+  });
+  await page.waitForTimeout(150);
+
+  // O painel "Camadas" vem recolhido por padrão -- abre clicando no título.
+  const tituloCamadasFechado = await page.getByText("Camadas", { exact: true }).isVisible().catch(() => false);
+  if (tituloCamadasFechado) {
+    const painelJaAberto = await page.getByText("ELETRICA_LEGENDA", { exact: true }).isVisible().catch(() => false);
+    if (!painelJaAberto) await page.getByText("Camadas", { exact: true }).click();
+  }
+  await page.waitForTimeout(150);
+
+  const nomeCurtoVisivel = await page.getByText("ELETRICA_LEGENDA", { exact: true }).isVisible().catch(() => false);
+  checar('nome de camada "ELETRICA_LEGENDA" aparece POR COMPLETO no painel (não corta em "ELE...")', nomeCurtoVisivel);
+  const nomeLongoVisivel = await page.getByText("QUADRO_DISTRIBUICAO_GERAL", { exact: true }).isVisible().catch(() => false);
+  checar('nome de camada mais longo "QUADRO_DISTRIBUICAO_GERAL" também aparece por completo (quebra linha se precisar, não corta)', nomeLongoVisivel);
+  const naoTemReticencias = !(await page.getByText("ELE...", { exact: false }).isVisible().catch(() => false));
+  checar('não sobra nenhum nome cortado com "..." no painel de camadas', naoTemReticencias);
 
   console.log("\n-----------------------------------------------------------------------");
   if (falhas.length > 0) {

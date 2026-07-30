@@ -1,25 +1,28 @@
 /**
  * scripts/playwright-test-iteracao45-termos-backup-antispam-resumo-onboarding.js
  * -----------------------------------------------------------------------
- * Iteração 45 (continuação 3) -- cobre as 5 melhorias de "implemente
+ * Iteração 45 (continuação 3) -- cobre as melhorias de "implemente
  * todas quero avisos fáceis e limpos, foque na experiência do usuário":
  *
  *   1) Termos de Uso (/termos) + link no LoginModal.
- *   2) Backup manual: exportar projeto atual como .json (dispara
- *      download) e importar um arquivo .json de volta (carrega o
- *      projeto).
- *   3) Limite anti-spam: mensagens de suporte além do limite por hora são
+ *   2) Limite anti-spam: mensagens de suporte além do limite por hora são
  *      recusadas com aviso claro; erros reportados automaticamente têm
  *      dedup (mesma mensagem em sequência não duplica) e teto por sessão.
- *   4) Aba "📊 Resumo" no painel do admin mostra números básicos de uso.
- *   5) Banner de boas-vindas aparece 1x, é dispensável, e não volta depois
+ *   3) Aba "📊 Resumo" no painel do admin mostra números básicos de uso.
+ *   4) Banner de boas-vindas aparece 1x, é dispensável, e não volta depois
  *      de dispensado.
+ *
+ * Iteração 46 (continuação): o backup manual (.json) que existia aqui
+ * ("⬇️ Baixar cópia (.json)" / "⬆️ Importar arquivo (.json)" dentro de
+ * "📁 Projetos") foi REMOVIDO a pedido do usuário -- ele viu o texto
+ * "(.json)" na tela e achou que era o painel de depuração que já tinha
+ * pedido pra tirar antes; em vez de só esclarecer a diferença, preferiu
+ * tirar a função de backup manual inteira também. A Parte 2 antiga (que
+ * testava exportar/importar) foi removida daqui; ficou só uma checagem
+ * confirmando que os botões não aparecem mais (ver logo abaixo da Parte 1).
  * -----------------------------------------------------------------------
  */
 const { chromium } = require("playwright");
-const fs = require("fs");
-const path = require("path");
-const os = require("os");
 
 async function main() {
   const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
@@ -71,8 +74,11 @@ async function main() {
   const linkTermosLogin = page.locator('a[href="/termos"]');
   checar("link para Termos de Uso presente no LoginModal", await linkTermosLogin.isVisible().catch(() => false));
 
-  console.log("\n=== Parte 2: backup manual -- exportar/importar projeto (.json) ===");
-  // Loga (mock) e fecha os modais de login/gate pra chegar no editor de verdade.
+  console.log("\n=== Parte 2: backup manual (.json) foi removido ===");
+  // Iteração 46 -- pedido do usuário: viu o texto "(.json)" na tela (dos
+  // botões de backup) e achou que fosse o painel de depuração já removido;
+  // decidiu tirar a função de backup manual inteira também. Confirma que
+  // os botões não existem mais em "📁 Projetos".
   await page.evaluate(() => {
     window.__cadStoreTeste.getState().setUsuario({ uid: "teste-uid-backup", email: "backup-teste@teste.com" });
   });
@@ -81,49 +87,14 @@ async function main() {
   if (await cancelarLogin.isVisible().catch(() => false)) await cancelarLogin.click();
   await page.waitForTimeout(150);
 
-  // Reabre "Meus Projetos" pra alcançar os botões de backup (o gate se
-  // fecha authomaticamente só quando já tinha usuário antes; aqui setamos
-  // via store direto, então o modal de projetos continua aberto).
   const tituloProjetos = await page.getByText("📁 Projetos").isVisible().catch(() => false);
   checar("(sanidade) Gerenciador de Projetos está aberto e logado", tituloProjetos);
-
-  await page.getByRole("button", { name: "⬇️ Baixar cópia (.json)" }).click();
-  await page.waitForTimeout(200);
-  const statusExportou = await page.getByText("Cópia baixada", { exact: false }).isVisible().catch(() => false);
-  checar('mensagem de status "Cópia baixada ✓" aparece após exportar', statusExportou);
-
-  // Importar: escreve um arquivo .json válido no disco e o injeta
-  // diretamente no <input type="file"> (mais confiável que simular o
-  // clique no botão + diálogo nativo do SO, que o Playwright não abre).
-  const nomeImportado = "Projeto Importado Teste Iteracao45";
-  const projetoValido = {
-    id_projeto: "id-projeto-importado-teste",
-    nome: nomeImportado,
-    xrefs: [],
-    geometria: [],
-    camadas: {},
-  };
-  const caminhoArquivo = path.join(os.tmpdir(), "projeto-teste-importar.cadrd.json");
-  fs.writeFileSync(caminhoArquivo, JSON.stringify(projetoValido, null, 2));
-
-  await page.locator('input[type="file"][accept=".json"]').setInputFiles(caminhoArquivo);
-  await page.waitForTimeout(300);
-
-  const nomeProjetoAposImportar = await page.evaluate(() => window.__cadStoreTeste.getState().projeto.nome);
-  checar("projeto importado foi carregado no store (nome bate)", nomeProjetoAposImportar === nomeImportado, nomeProjetoAposImportar);
-  const modalFechouAposImportar = !(await page.getByText("📁 Projetos").isVisible().catch(() => false));
-  checar("modal de Projetos fechou automaticamente após importar com sucesso", modalFechouAposImportar);
-
-  // Tenta importar um arquivo claramente inválido -- deve mostrar erro
-  // claro, sem travar nada.
-  await page.evaluate(() => window.__cadStoreTeste.getState().abrirGerenciadorProjetos());
-  await page.waitForTimeout(150);
-  const caminhoInvalido = path.join(os.tmpdir(), "arquivo-invalido.cadrd.json");
-  fs.writeFileSync(caminhoInvalido, JSON.stringify({ qualquerCoisa: true }));
-  await page.locator('input[type="file"][accept=".json"]').setInputFiles(caminhoInvalido);
-  await page.waitForTimeout(300);
-  const erroArquivoInvalido = await page.getByText("não parece ser um backup de projeto", { exact: false }).isVisible().catch(() => false);
-  checar("arquivo .json inválido mostra mensagem de erro clara (não trava o app)", erroArquivoInvalido);
+  const botaoBaixarSumiu = !(await page.getByText("Baixar cópia", { exact: false }).isVisible().catch(() => false));
+  checar('botão "Baixar cópia (.json)" não existe mais', botaoBaixarSumiu);
+  const botaoImportarSumiu = !(await page.getByText("Importar arquivo", { exact: false }).isVisible().catch(() => false));
+  checar('botão "Importar arquivo (.json)" não existe mais', botaoImportarSumiu);
+  const inputArquivoSumiu = (await page.locator('input[type="file"][accept=".json"]').count()) === 0;
+  checar('input de arquivo escondido (.json) não existe mais no DOM', inputArquivoSumiu);
 
   console.log("\n=== Parte 3: limite anti-spam (suporte + erros) ===");
   const UID_SPAM = "teste-uid-spam-suporte";

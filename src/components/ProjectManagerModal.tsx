@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useState } from "react";
 import { useCadStore } from "@/lib/store";
 import {
   salvarProjeto,
@@ -9,7 +9,6 @@ import {
   renomearProjeto,
   excluirProjetoSalvo,
 } from "@/lib/firebase";
-import { exportarProjetoParaArquivo, importarProjetoDeArquivo } from "@/lib/backupProjeto";
 import { LoginModal } from "./LoginModal";
 
 function formatarData(epochMs: number): string {
@@ -69,12 +68,6 @@ export function ProjectManagerModal() {
   const [loginAberto, setLoginAberto] = useState(false);
   const [mostrarCampoId, setMostrarCampoId] = useState(false);
   const [idParaCarregar, setIdParaCarregar] = useState("");
-  // Iteração 45 -- backup manual (.json): input de arquivo escondido,
-  // acionado pelo botão de texto "⬆️ Importar arquivo (.json)" (o próprio
-  // <input type="file"> nativo é feio/difícil de estilizar de forma
-  // consistente com o resto da UI, então fica invisível e um botão comum
-  // aciona `.click()` nele -- padrão bem estabelecido para isso).
-  const inputArquivoRef = useRef<HTMLInputElement>(null);
 
   async function recarregarLista() {
     if (!usuario) return;
@@ -131,42 +124,6 @@ export function ProjectManagerModal() {
   function handleNovoProjeto() {
     novoProjeto();
     onFechar();
-  }
-
-  // Iteração 45 -- backup manual (.json): "quero avisos fáceis e limpos,
-  // foque na experiência do usuário" (pedido do usuário) -- por isso as
-  // mensagens aqui são curtas e diretas, sem jargão técnico, e o fluxo é
-  // só 1 clique (baixar) ou 1 clique + escolher arquivo (importar), sem
-  // etapas extras.
-  function handleExportarArquivo() {
-    exportarProjetoParaArquivo(projeto);
-    setErro(null);
-    setStatus("Cópia baixada ✓ -- veja a pasta de downloads do seu navegador.");
-  }
-
-  function handleClicarImportar() {
-    inputArquivoRef.current?.click();
-  }
-
-  async function handleArquivoSelecionado(e: ChangeEvent<HTMLInputElement>) {
-    const arquivo = e.target.files?.[0];
-    // Sempre limpa o valor do input, mesmo em caso de erro -- sem isso,
-    // selecionar o MESMO arquivo duas vezes seguidas não dispara `onChange`
-    // de novo (o navegador só avisa quando o valor muda).
-    e.target.value = "";
-    if (!arquivo) return;
-
-    setErro(null);
-    setStatus("Lendo arquivo...");
-    const r = await importarProjetoDeArquivo(arquivo);
-    if (r.ok && r.projeto) {
-      carregarProjetoNoStore(r.projeto);
-      setStatus(null);
-      onFechar();
-    } else {
-      setErro(r.erro ?? "Não foi possível importar este arquivo.");
-      setStatus(null);
-    }
   }
 
   async function handleAbrir(id: string) {
@@ -253,22 +210,6 @@ export function ProjectManagerModal() {
             >
               💾 Salvar projeto atual
             </button>
-          </div>
-        )}
-
-        {/* Iteração 45 -- backup manual (.json): segunda linha, discreta
-            (texto simples em vez de botões cheios), pra não competir
-            visualmente com as ações principais acima -- é um recurso de
-            segurança extra, não o fluxo do dia a dia. */}
-        {usuario && (
-          <div className="flex items-center gap-3 border-b border-slate-100 px-4 py-1.5 text-[11px]">
-            <button type="button" onClick={handleExportarArquivo} className="text-slate-500 hover:text-slate-700 hover:underline">
-              ⬇️ Baixar cópia (.json)
-            </button>
-            <button type="button" onClick={handleClicarImportar} className="text-slate-500 hover:text-slate-700 hover:underline">
-              ⬆️ Importar arquivo (.json)
-            </button>
-            <input ref={inputArquivoRef} type="file" accept=".json" onChange={handleArquivoSelecionado} className="hidden" />
           </div>
         )}
 

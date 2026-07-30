@@ -55,70 +55,85 @@ export function LayersPanel() {
           return (
             <li
               key={camada.nome}
-              className={`flex items-center gap-1.5 rounded-md border px-1.5 py-1 text-[11px] ${
+              className={`rounded-md border px-1.5 py-1 text-[11px] ${
                 ativa ? "border-blue-400 bg-blue-50" : "border-transparent hover:bg-slate-50"
               }`}
             >
-              <button
-                type="button"
-                onClick={() => alternarVisibilidadeCamada(camada.nome)}
-                title={camada.visible ? "Ocultar camada" : "Mostrar camada"}
-                className={`shrink-0 rounded p-0.5 ${camada.visible ? "text-amber-500" : "text-slate-300"}`}
-              >
-                {camada.visible ? "💡" : "🌑"}
-              </button>
-
-              <input
-                type="color"
-                value={camada.cor}
-                onChange={(e) => atualizarCamada(camada.nome, { cor: e.target.value })}
-                title="Cor da camada"
-                className="h-4 w-4 shrink-0 cursor-pointer border-0 bg-transparent p-0"
-              />
-
-              <button
-                type="button"
-                onClick={() => setActiveLayer(camada.nome)}
-                className={`flex-1 truncate text-left font-medium ${ativa ? "text-blue-700" : "text-slate-700"}`}
-                title="Definir como camada ativa"
-              >
-                {camada.nome}
-              </button>
-
-              <input
-                type="number"
-                min={0.2}
-                step={0.2}
-                value={camada.espessuraDaLinha}
-                onChange={(e) => atualizarCamada(camada.nome, { espessuraDaLinha: Number(e.target.value) })}
-                title="Espessura da linha (px)"
-                className="w-10 shrink-0 rounded border border-slate-200 px-0.5 py-0.5 text-[10px]"
-              />
-
-              <select
-                value={camada.estiloLinha ?? "continua"}
-                onChange={(e) =>
-                  atualizarCamada(camada.nome, {
-                    estiloLinha: e.target.value as "continua" | "tracejada",
-                  })
-                }
-                title="Estilo da linha (contínua ou tracejada)"
-                className="w-11 shrink-0 rounded border border-slate-200 px-0.5 py-0.5 text-[10px]"
-              >
-                <option value="continua">──</option>
-                <option value="tracejada">╌╌</option>
-              </select>
-
-              {lista.length > 1 && (
+              {/* Iteração 46 (continuação) -- pedido do usuário: "os nomes
+                  das layers precisam ser lidos por completo no painel a
+                  esquerda... nao dar para ler o nome da layer, so inicio".
+                  Antes o nome dividia a mesma linha com o input de
+                  espessura e o select de estilo, sobrando pouquíssimo
+                  espaço (cortava em 3-4 letras + "..."). Agora o nome tem
+                  uma linha SÓ PRA ELE (sem truncar -- quebra em 2 linhas se
+                  precisar, `whitespace-normal break-words`), e espessura/
+                  estilo/remover foram pra uma 2ª linha embaixo. */}
+              <div className="flex items-center gap-1.5">
                 <button
                   type="button"
-                  onClick={() => removerCamada(camada.nome)}
-                  title="Remover camada"
-                  className="shrink-0 px-0.5 text-slate-300 hover:text-red-500"
+                  onClick={() => alternarVisibilidadeCamada(camada.nome)}
+                  title={camada.visible ? "Ocultar camada" : "Mostrar camada"}
+                  className={`shrink-0 rounded p-0.5 ${camada.visible ? "text-amber-500" : "text-slate-300"}`}
                 >
-                  ✕
+                  {camada.visible ? "💡" : "🌑"}
                 </button>
-              )}
+
+                <input
+                  type="color"
+                  value={camada.cor}
+                  onChange={(e) => atualizarCamada(camada.nome, { cor: e.target.value })}
+                  title="Cor da camada"
+                  className="h-4 w-4 shrink-0 cursor-pointer border-0 bg-transparent p-0"
+                />
+
+                <button
+                  type="button"
+                  onClick={() => setActiveLayer(camada.nome)}
+                  className={`flex-1 whitespace-normal break-words text-left font-medium leading-tight ${
+                    ativa ? "text-blue-700" : "text-slate-700"
+                  }`}
+                  title="Definir como camada ativa"
+                >
+                  {camada.nome}
+                </button>
+
+                {lista.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removerCamada(camada.nome)}
+                    title="Remover camada"
+                    className="shrink-0 px-0.5 text-slate-300 hover:text-red-500"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+
+              <div className="mt-1 flex items-center gap-1.5 pl-6">
+                <input
+                  type="number"
+                  min={0.2}
+                  step={0.2}
+                  value={camada.espessuraDaLinha}
+                  onChange={(e) => atualizarCamada(camada.nome, { espessuraDaLinha: Number(e.target.value) })}
+                  title="Espessura da linha (px)"
+                  className="w-10 shrink-0 rounded border border-slate-200 px-0.5 py-0.5 text-[10px]"
+                />
+
+                <select
+                  value={camada.estiloLinha ?? "continua"}
+                  onChange={(e) =>
+                    atualizarCamada(camada.nome, {
+                      estiloLinha: e.target.value as "continua" | "tracejada",
+                    })
+                  }
+                  title="Estilo da linha (contínua ou tracejada)"
+                  className="w-11 shrink-0 rounded border border-slate-200 px-0.5 py-0.5 text-[10px]"
+                >
+                  <option value="continua">──</option>
+                  <option value="tracejada">╌╌</option>
+                </select>
+              </div>
             </li>
           );
         })}
