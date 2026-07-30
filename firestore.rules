@@ -76,6 +76,26 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // -----------------------------------------------------------------------
+    // Monitoramento de erros (Iteração 45) -- 1 documento por OCORRÊNCIA de
+    // erro (id automático, não é por usuário), capturado automaticamente
+    // pelo app (ver `lib/useCapturarErros.ts`/`lib/errorLog.ts`). Regra:
+    //   - LEITURA: só o admin (é um painel de diagnóstico interno, não faz
+    //     sentido nenhum usuário comum ver erros de outras pessoas).
+    //   - CRIAÇÃO: qualquer usuário autenticado pode reportar um erro que
+    //     aconteceu com ele (é basicamente telemetria, não dado sensível de
+    //     projeto) -- sem exigir uid específico no documento, porque o
+    //     relatório pode ser sobre um erro genérico da UI, não ligado a um
+    //     projeto/dono.
+    //   - Nunca pode ser editado ou apagado por ninguém pelo cliente (evita
+    //     que alguém "limpe o próprio rastro" reescrevendo o próprio erro).
+    // -----------------------------------------------------------------------
+    match /erros_reportados/{erroId} {
+      allow read: if request.auth != null && request.auth.token.email == "rodrigues.solar@hotmail.com";
+      allow create: if request.auth != null;
+      allow update, delete: if false;
+    }
+
     // Qualquer outra coleção fica bloqueada por padrão (nenhuma outra
     // coleção é usada pelo app hoje).
     match /{document=**} {

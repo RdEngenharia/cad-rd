@@ -11,7 +11,9 @@ import { JsonPanel } from "./JsonPanel";
 import { CalibrationModal } from "./CalibrationModal";
 import { ProjectManagerModal } from "./ProjectManagerModal";
 import { SuportePanel } from "./SuportePanel";
+import { AjudaPanel } from "./AjudaPanel";
 import { useHydrateXrefs } from "@/lib/useHydrateXrefs";
+import { useCapturarErros } from "@/lib/useCapturarErros";
 import { useCadStore } from "@/lib/store";
 
 // O Konva toca `window`/`document` na importação, então o Stage só pode
@@ -53,6 +55,7 @@ export function Editor() {
   const abrirGerenciadorProjetos = useCadStore((s) => s.abrirGerenciadorProjetos);
 
   useHydrateXrefs();
+  useCapturarErros();
 
   // Sorteia o id_projeto só depois de montado no navegador (ver
   // comentário em lib/store.ts) para não causar mismatch de hidratação.
@@ -102,6 +105,7 @@ export function Editor() {
       <CalibrationModal />
       <ProjectManagerModal />
       <SuportePanel />
+      <AjudaPanel />
     </div>
   );
 }

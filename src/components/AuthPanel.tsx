@@ -27,6 +27,7 @@ export function AuthPanel() {
   const setUsuario = useCadStore((s) => s.setUsuario);
   const abrirGerenciadorProjetos = useCadStore((s) => s.abrirGerenciadorProjetos);
   const abrirSuporte = useCadStore((s) => s.abrirSuporte);
+  const abrirAjuda = useCadStore((s) => s.abrirAjuda);
   const cancelarDesenho = useCadStore((s) => s.cancelarDesenho);
   const [loginAberto, setLoginAberto] = useState(false);
   const [suporteNaoLido, setSuporteNaoLido] = useState(0);
@@ -92,6 +93,14 @@ export function AuthPanel() {
   return (
     <>
       <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={abrirAjuda}
+          title="Manual passo a passo: comandos, botões e geradores automáticos"
+          className="rounded border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+        >
+          ❓ Ajuda
+        </button>
         {usuario ? (
           <>
             <span className="max-w-[120px] truncate text-[11px] text-slate-500" title={usuario.email}>

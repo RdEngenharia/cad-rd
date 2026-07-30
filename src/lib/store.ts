@@ -733,6 +733,35 @@ interface CadState {
   abrirSuporte: () => void;
   fecharSuporte: () => void;
 
+  /**
+   * "Ajuda" (Iteração 45, pedido do usuário após já ter recebido o manual
+   * em PDF: "eu havia pedido um campo de ajuda, manual passo a passo de
+   * como usar os comandos botoes e botoes automaticos" -- ou seja, o
+   * manual também precisa estar DENTRO do próprio app, não só como PDF
+   * separado). Mesmo padrão de `suporteAberto` acima: um modal único
+   * (`AjudaModal.tsx`, montado 1x em `Editor.tsx`), aberto pelo botão
+   * "❓ Ajuda" da `AuthPanel` -- disponível mesmo sem login (é só
+   * documentação, não precisa de conta).
+   */
+  ajudaAberto: boolean;
+  abrirAjuda: () => void;
+  fecharAjuda: () => void;
+
+  /**
+   * Autosave + aviso de alterações não salvas (Iteração 45 -- melhoria
+   * sugerida e aceita pelo usuário: "com login virando obrigatório, faz
+   * sentido salvar automaticamente de tempos em tempos, e avisar se o
+   * usuário tentar sair da página com alterações não salvas"). Guarda um
+   * "retrato" (JSON.stringify) do `projeto` no momento do ÚLTIMO salvamento
+   * bem-sucedido (manual OU automático) -- comparar o `projeto` atual
+   * contra esse retrato é como `useAutoSalvar.ts` e o aviso de
+   * `beforeunload` sabem se há algo "sujo" (não salvo) sem precisar
+   * duplicar um campo booleano que teria que ser mantido sincronizado em
+   * toda ação que edita `projeto` (dezenas de lugares).
+   */
+  ultimoSnapshotSalvo: string | null;
+  marcarProjetoComoSalvo: () => void;
+
   // Padrão de Entrada/Concessionária (leva não-numerada) ----------------------
   /**
    * Insere, num único passo de undo, o conjunto vetorial completo do
@@ -1368,6 +1397,8 @@ export const useCadStore = create<CadState>((set, get) => {
   projetosSalvos: [],
   gerenciadorProjetosAberto: false,
   suporteAberto: false,
+  ajudaAberto: false,
+  ultimoSnapshotSalvo: null,
   viewportAtivoId: null,
   prenchaAtivaId: null,
   viewportPranchaSelecionadoId: null,
@@ -1665,6 +1696,11 @@ export const useCadStore = create<CadState>((set, get) => {
       xrefSelecionadoId: null,
       viewportAtivoId: null,
     });
+    // Acabou de carregar do zero -- este é o "estado salvo" de referência
+    // (ainda não há nada de novo pra perder), senão o autosave/aviso de
+    // `beforeunload` achariam "sujo" um projeto recém-aberto sem nenhuma
+    // edição do usuário ainda.
+    get().marcarProjetoComoSalvo();
   },
 
   // Chamado a partir de um clique do usuário (evento), então gerar um
@@ -1697,6 +1733,9 @@ export const useCadStore = create<CadState>((set, get) => {
       xrefSelecionadoId: null,
       viewportAtivoId: null,
     });
+    // Mesmo motivo do `carregarProjeto` acima: um projeto novo em folha
+    // branca não deveria disparar autosave/aviso de saída na hora.
+    get().marcarProjetoComoSalvo();
   },
 
   // Roda 1x na montagem do <Editor/> (ver Editor.tsx). Além de garantir o
@@ -1707,7 +1746,7 @@ export const useCadStore = create<CadState>((set, get) => {
   // `novoProjeto`/`carregarProjeto`) -- sem isso, a 1ª vez que alguém abre
   // o app cairia direto no Desenho vazio sem moldura nenhuma, em vez de
   // já ver uma folha como sempre foi.
-  garantirIdProjeto: () =>
+  garantirIdProjeto: () => {
     set((state) => {
       const precisaId = !state.projeto.id_projeto;
       const precisaPranchaInicial = state.projeto.pranchas.length === 0;
@@ -1735,7 +1774,12 @@ export const useCadStore = create<CadState>((set, get) => {
         },
         prenchaAtivaId: pranchaInicial ? pranchaInicial.id : state.prenchaAtivaId,
       };
-    }),
+    });
+    // Roda no boot -- ainda não há edição do usuário pra perder, então este
+    // é um bom ponto de partida pro autosave/aviso de saída (evita marcar
+    // como "sujo" o app recém-aberto antes de qualquer clique).
+    get().marcarProjetoComoSalvo();
+  },
 
   criarCamada: (nome, cor) => {
     const chave = nome.trim().toUpperCase();
@@ -2770,6 +2814,10 @@ export const useCadStore = create<CadState>((set, get) => {
   fecharGerenciadorProjetos: () => set({ gerenciadorProjetosAberto: false }),
   abrirSuporte: () => set({ suporteAberto: true }),
   fecharSuporte: () => set({ suporteAberto: false }),
+  abrirAjuda: () => set({ ajudaAberto: true }),
+  fecharAjuda: () => set({ ajudaAberto: false }),
+
+  marcarProjetoComoSalvo: () => set({ ultimoSnapshotSalvo: JSON.stringify(get().projeto) }),
 
   // Padrão de Entrada/Concessionária (leva não-numerada): insere o
   // conjunto poste+ramal+medidor+textos como UM ÚNICO passo de undo (só

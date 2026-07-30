@@ -56,6 +56,8 @@ export function ProjectManagerModal() {
   const setProjetosSalvos = useCadStore((s) => s.setProjetosSalvos);
   const novoProjeto = useCadStore((s) => s.novoProjeto);
   const carregarProjetoNoStore = useCadStore((s) => s.carregarProjeto);
+  const abrirAjuda = useCadStore((s) => s.abrirAjuda);
+  const marcarProjetoComoSalvo = useCadStore((s) => s.marcarProjetoComoSalvo);
 
   const [carregandoLista, setCarregandoLista] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -108,6 +110,10 @@ export function ProjectManagerModal() {
       setStatus(
         `Salvo ✓ (${r.modo === "firestore" ? "nuvem" : "neste dispositivo"}) -- id: ${projeto.id_projeto.slice(0, 8)}…`
       );
+      // Iteração 45 -- autosave: este salvamento manual também conta como
+      // "estado salvo" de referência, senão o autosave rodaria de novo
+      // (achando "sujo") mesmo sem nenhuma edição nova depois deste clique.
+      marcarProjetoComoSalvo();
       if (usuario) void recarregarLista();
     } else {
       setErro(r.erro ?? "Erro ao salvar.");
@@ -222,6 +228,18 @@ export function ProjectManagerModal() {
                 className="w-full rounded border border-blue-200 bg-white px-2.5 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50"
               >
                 👤 Entrar / Criar conta
+              </button>
+              {/* Iteração 45 (continuação) -- o usuário voltou pedindo o
+                  "campo de ajuda" dentro do app: como o login é obrigatório
+                  e este gerenciador cobre a tela inteira antes de logar (sem
+                  botão de fechar nesse estado), o manual só ficaria alcançável
+                  DEPOIS de criar conta se não estivesse também aqui dentro. */}
+              <button
+                type="button"
+                onClick={abrirAjuda}
+                className="w-full rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+              >
+                ❓ Ver manual de ajuda (sem precisar de conta)
               </button>
             </div>
           ) : carregandoLista ? (

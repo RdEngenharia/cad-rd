@@ -28,6 +28,7 @@ import {
   signInWithEmailAndPassword,
   signOut as signOutFirebase,
   onAuthStateChanged,
+  sendPasswordResetEmail,
   type Auth,
 } from "firebase/auth";
 import { FIREBASE_CONFIGURADO, obterApp } from "./firebase";
@@ -117,6 +118,42 @@ export async function entrar(
   try {
     const cred = await signInWithEmailAndPassword(getAuthInstance(), email.trim(), senha);
     return { ok: true, usuario: { uid: cred.user.uid, email: cred.user.email ?? email } };
+  } catch (e) {
+    return { ok: false, erro: mensagemErroFirebaseAuth(e) };
+  }
+}
+
+/**
+ * Redefinição de senha ("Esqueci minha senha" -- sugestão de melhoria
+ * aceita pelo usuário: "com login virando obrigatório pra tudo, um
+ * projetista/eletricista que esquecer a senha fica travado sem conseguir
+ * nem ver o próprio projeto"). Manda um e-mail de verdade com um link de
+ * redefinição via Firebase Auth.
+ *
+ * Modo mock (`!FIREBASE_CONFIGURADO`): não existe validação de senha de
+ * verdade nesse modo (qualquer senha com 4+ caracteres entra, ver
+ * `entrar`/`cadastrar` acima), então "esquecer a senha" não é um problema
+ * real -- devolve `ok: true` com um aviso explicando isso, sem mandar
+ * e-mail nenhum (não haveria pra onde mandar).
+ *
+ * Por segurança (evitar que alguém descubra quais e-mails têm conta só
+ * tentando redefinir senha), o Firebase por padrão JÁ não diferencia
+ * "e-mail não cadastrado" de "e-mail cadastrado com sucesso" nesta
+ * operação (ambos retornam sucesso) -- mantido aqui sem alteração.
+ */
+export async function redefinirSenha(email: string): Promise<{ ok: boolean; erro?: string; mock?: boolean }> {
+  const limpo = email.trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(limpo)) {
+    return { ok: false, erro: "Digite um e-mail válido." };
+  }
+
+  if (!FIREBASE_CONFIGURADO) {
+    return { ok: true, mock: true };
+  }
+
+  try {
+    await sendPasswordResetEmail(getAuthInstance(), limpo);
+    return { ok: true };
   } catch (e) {
     return { ok: false, erro: mensagemErroFirebaseAuth(e) };
   }

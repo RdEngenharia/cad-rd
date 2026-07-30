@@ -5,6 +5,7 @@ import { exportarPagina, exportarTodasPranchas, exportarPaginaA4, exportarTodasP
 import { exportarPranchaDxf } from "@/lib/dxfExport";
 import { AuthPanel } from "./AuthPanel";
 import { useState } from "react";
+import { useAutoSalvar } from "@/lib/useAutoSalvar";
 
 /**
  * Toolbar
@@ -37,6 +38,12 @@ export function Toolbar() {
   const unidadeDesenho = useCadStore((s) => s.unidadeDesenho);
 
   const [status, setStatus] = useState<string | null>(null);
+  // Iteração 45 -- melhoria aceita pelo usuário: autosave periódico +
+  // aviso de alterações não salvas ao tentar fechar/recarregar a página
+  // (ver `lib/useAutoSalvar.ts`). O hook cuida de tudo sozinho (intervalo +
+  // listener de `beforeunload`); aqui só usamos o horário devolvido pra
+  // mostrar um indicador discreto.
+  const ultimoAutoSalvamento = useAutoSalvar();
 
   async function handleExportarPdf() {
     if (!pranchaAtiva) return;
@@ -188,6 +195,14 @@ export function Toolbar() {
       )}
 
       <div className="ml-auto flex items-center gap-2">
+        {ultimoAutoSalvamento && (
+          <span
+            className="text-[11px] text-slate-400"
+            title="Salvamento automático periódico -- não substitui o botão 'Salvar projeto atual' se você quiser garantir agora"
+          >
+            💾 Salvo automaticamente às {new Date(ultimoAutoSalvamento).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+          </span>
+        )}
         {status && <span className="max-w-[220px] truncate text-[11px] text-slate-500">{status}</span>}
 
         <AuthPanel />
