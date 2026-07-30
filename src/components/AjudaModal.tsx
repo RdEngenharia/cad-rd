@@ -68,6 +68,22 @@ export function AjudaModal({ onFechar }: AjudaModalProps) {
           </button>
         </div>
 
+        {/* Iteração 46 (continuação) -- pedido do usuário: divulgar o curso
+            em vídeo-aulas lançado no YouTube diretamente no campo de Ajuda,
+            pra quem abrir o manual ser direcionado pra lá. Fica como um
+            banner fixo logo abaixo do cabeçalho (sempre visível, não
+            depende de rolar até nenhuma seção específica), abrindo em nova
+            aba pra não tirar o usuário do app. */}
+        <a
+          href="https://youtube.com/playlist?list=PLZ3Mg4e3fxMk&si=kQ12doXAzOAa2fYy"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center justify-between gap-2 border-b border-red-100 bg-red-50 px-4 py-2 text-[12px] font-semibold text-red-700 hover:bg-red-100"
+        >
+          <span>🎥 Curso completo em vídeo-aulas no YouTube -- assista passo a passo</span>
+          <span aria-hidden>↗</span>
+        </a>
+
         <div className="flex min-h-0 flex-1">
           <nav className="w-56 shrink-0 overflow-y-auto border-r border-slate-200 bg-slate-50 py-2">
             {SECOES.map((s) => (
